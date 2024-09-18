@@ -6,6 +6,7 @@ from PIL import Image, UnidentifiedImageError
 import os
 import random
 import timm  # For EfficientNet or other pre-trained models
+import re
 
 # Set device (GPU if available)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -32,7 +33,7 @@ class ProjectilePointDataset(Dataset):
             angle = random.uniform(0, 360)  # Random angle between 0 and 360 degrees
             rotated_image = transforms.functional.rotate(image, angle)
             
-            # Apply other transformations (e.g., resize, tensor conversion, normalization)
+            # Apply other transformations (e.g., augmentations)
             if self.transform:
                 rotated_image = self.transform(rotated_image)
             
@@ -74,11 +75,28 @@ class RotationModel(nn.Module):
     def forward(self, x):
         return self.base_model(x)
 
+# Function to find the last saved epoch
+def get_last_checkpoint(save_path):
+    files = os.listdir(save_path)
+    epoch_files = [f for f in files if f.startswith("rotate_model_object_epoch_") and f.endswith(".pth")]
+    if not epoch_files:
+        return 0, None
+    
+    # Extract the epoch number from filenames
+    epoch_files = sorted(epoch_files, key=lambda f: int(re.findall(r'\d+', f)[0]))
+    last_epoch_file = epoch_files[-1]
+    last_epoch = int(re.findall(r'\d+', last_epoch_file)[0])
+    return last_epoch, os.path.join(save_path, last_epoch_file)
+
 # Training function
-def train_model(image_folder, epochs=10, batch_size=32, save_path='models/'):
+def train_model(image_folder, epochs=30, batch_size=32, save_path='models/'):
     try:
-        # Define transformations (resize, normalize)
+        # Define transformations (augmentations, resize, normalize)
         transform = transforms.Compose([
+            transforms.RandomHorizontalFlip(p=0.5),   # Randomly flip horizontally
+            transforms.RandomVerticalFlip(p=0.5),     # Randomly flip vertically
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Random color jitter
+            transforms.RandomAffine(degrees=30, translate=(0.1, 0.1), scale=(0.9, 1.1)),   # Random affine transformation
             transforms.Resize((128, 128)),  # Resize to match input size expected by the model
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406, 0], [0.229, 0.224, 0.225, 1])  # Normalize the RGBA channels
@@ -101,10 +119,18 @@ def train_model(image_folder, epochs=10, batch_size=32, save_path='models/'):
         criterion = nn.MSELoss()  # Mean Squared Error for regression task (predicting angle)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
+        # Check if previous checkpoints exist and load the latest checkpoint
+        last_epoch, checkpoint_path = get_last_checkpoint(save_path)
+        if last_epoch > 0:
+            print(f"Resuming training from epoch {last_epoch}. Loading checkpoint from {checkpoint_path}.")
+            model.load_state_dict(torch.load(checkpoint_path))
+            optimizer_state_path = checkpoint_path.replace('.pth', '_optimizer.pth')
+            if os.path.exists(optimizer_state_path):
+                optimizer.load_state_dict(torch.load(optimizer_state_path))
+        else:
+            print("Starting training from scratch.")
 
-        for epoch in range(epochs):
+        for epoch in range(last_epoch, last_epoch + epochs):
             # Training phase
             model.train()
             running_loss = 0.0
@@ -138,11 +164,12 @@ def train_model(image_folder, epochs=10, batch_size=32, save_path='models/'):
 
             val_loss /= len(val_loader)
             
-            print(f"Epoch [{epoch+1}/{epochs}], Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}")
+            print(f"Epoch [{epoch+1}/{last_epoch + epochs}], Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}")
 
             # Save the model and log the results for each epoch
-            model_save_path = os.path.join(save_path, f'model_epoch_{epoch+1}.pth')
+            model_save_path = os.path.join(save_path, f'rotate_model_object_epoch_{epoch+1}.pth')
             torch.save(model.state_dict(), model_save_path)
+            torch.save(optimizer.state_dict(), model_save_path.replace('.pth', '_optimizer.pth'))
             
             with open(os.path.join(save_path, 'training_log.txt'), 'a') as log_file:
                 log_file.write(f"Epoch: {epoch+1}, Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}\n")
@@ -153,4 +180,4 @@ def train_model(image_folder, epochs=10, batch_size=32, save_path='models/'):
 # Train the model with dynamically rotated images
 if __name__ == "__main__":
     image_folder = 'cropped'  # Folder containing your original images
-    train_model(image_folder=image_folder, epochs=10, batch_size=32)
+    train_model(image_folder=image_folder, epochs=30, batch_size=32)
