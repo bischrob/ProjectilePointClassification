@@ -24,7 +24,7 @@ model.eval()
 # img = Image.open(r"ColoradoProjectilePointdatabase\originals\5MT10991.8638.png").convert("RGB")
 # img = Image.open(r"ColoradoProjectilePointdatabase\originals\5SH1458_0016.png").convert("RGB")
 # img = Image.open(r"ColoradoProjectilePointdatabase\originals\5_MO_0320100_0333.png").convert("RGB")
-img = Image.open(r"..\ColoradoProjectilePointdatabase\originals\5SM3459.2.png").convert("RGB")
+img = Image.open(r"..\ColoradoProjectilePointdatabase\originals\5GN191.11899_side-2.png").convert("RGB")
 
 
 # Crop the image to remove rulers
@@ -263,7 +263,7 @@ def crop_image(img_path, probability=0.75):
 
 originals_dir = r"..\ColoradoProjectilePointdatabase/originals"
 image_files = [f for f in os.listdir(originals_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-image_list = image_files[11:5000]
+image_list = image_files[5001:11220]
 
 for img_file in image_list:
     img_path = os.path.join(originals_dir, img_file)

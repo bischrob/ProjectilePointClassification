@@ -4,6 +4,7 @@ from torchvision import transforms
 from PIL import Image, ImageOps
 import os
 import matplotlib.pyplot as plt
+import numpy as np
 import timm  # For EfficientNetV2
 
 # Set device (GPU if available)
@@ -55,6 +56,24 @@ def preprocess_image(image_path):
     image_tensor = transform(image).unsqueeze(0)  # Add batch dimension
     return image, image_tensor  # Return both original image and tensor
 
+# Function to calculate the bounding box of the non-transparent pixels
+def get_bounding_box(image):
+    # Convert the RGBA image to a numpy array
+    image_array = np.array(image)
+    
+    # Find the non-transparent pixels (alpha > 0)
+    alpha_channel = image_array[:, :, 3]  # Extract the alpha channel
+    non_zero_coords = np.argwhere(alpha_channel > 0)  # Get coordinates where alpha is greater than 0
+    
+    if non_zero_coords.shape[0] > 0:
+        # Find the bounding box coordinates
+        y_min, x_min = non_zero_coords.min(axis=0)
+        y_max, x_max = non_zero_coords.max(axis=0)
+        return (x_min, y_min, x_max, y_max)
+    else:
+        # Return None if no non-transparent pixels are found
+        return None
+
 # Function to predict the rotation angle (regression task)
 def predict_rotation_angle(model, image_tensor):
     model.eval()
@@ -71,14 +90,18 @@ def rotate_image(image, angle):
     # Ensure the image remains in RGBA mode to preserve transparency
     return rotated_image.convert("RGBA")
 
-# Function to plot original and rotated images
-def plot_images(original_image, rotated_image, angle):
+# Function to plot original and rotated images with bounding box
+def plot_images_with_bbox(original_image, rotated_image, bbox, angle):
     plt.figure(figsize=(8, 4))
     
     # Original Image
     plt.subplot(1, 2, 1)
     plt.imshow(original_image)
-    plt.title("Original Image")
+    if bbox:
+        x_min, y_min, x_max, y_max = bbox
+        plt.gca().add_patch(plt.Rectangle((x_min, y_min), x_max - x_min, y_max - y_min,
+                                          linewidth=2, edgecolor='red', facecolor='none'))
+    plt.title("Original Image with Bounding Box")
     
     # Rotated Image
     plt.subplot(1, 2, 2)
@@ -95,6 +118,14 @@ def main(model_path, image_path):
     # Preprocess the image
     original_image, image_tensor = preprocess_image(image_path)
     
+    # Get the bounding box of the object (non-transparent pixels)
+    bbox = get_bounding_box(original_image)
+    
+    if bbox:
+        print(f"Bounding box coordinates: {bbox}")
+    else:
+        print("No bounding box found (image is fully transparent).")
+    
     # Predict the rotation angle
     predicted_angle = predict_rotation_angle(model, image_tensor)
     
@@ -103,15 +134,15 @@ def main(model_path, image_path):
     # Rotate the image based on the predicted angle
     rotated_image = rotate_image(original_image, predicted_angle)
     
-    # Plot the original and rotated images
-    plot_images(original_image, rotated_image, predicted_angle)
+    # Plot the original and rotated images with bounding box
+    plot_images_with_bbox(original_image, rotated_image, bbox, predicted_angle)
     
     return predicted_angle
 
 if __name__ == "__main__":
     # Specify paths to the model and the image
     model_path = 'models/rotation_model_object.pth'  # Path to your saved model
-    image_path = '5GN1876.4_side-2.png'  # Path to the image you want to process
+    image_path = '5GN191.11899_side-2.png'  # Path to the image you want to process
     
     # Run the main function and get the predicted rotation
     rotation = main(model_path, image_path)
