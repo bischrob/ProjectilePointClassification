@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
-from torchvision import transforms
+from torchvision import transforms, models
 from PIL import Image, ImageOps
-import timm  # For EfficientNetV2
 import os
 import matplotlib.pyplot as plt
 
@@ -10,18 +9,30 @@ import matplotlib.pyplot as plt
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Create EfficientNetV2 model with regression output
-class EfficientNetV2Model(nn.Module):
+# Create ResNet50 model with classification output (72 classes), modified for 4-channel input
+class ResNet50Model(nn.Module):
     def __init__(self):
-        super(EfficientNetV2Model, self).__init__()
-        self.base_model = timm.create_model('efficientnetv2_s', pretrained=False, num_classes=1)
+        super(ResNet50Model, self).__init__()
+        # Load the ResNet-50 model from torchvision
+        self.base_model = models.resnet50(pretrained=False)
+
+        # Modify the first convolutional layer to accept 4 input channels (RGBA)
+        self.base_model.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+        
+        # Initialize weights for the new 4-channel conv layer
+        with torch.no_grad():
+            self.base_model.conv1.weight[:, :3] = self.base_model.conv1.weight[:, :3]  # Copy the RGB weights
+            self.base_model.conv1.weight[:, 3] = self.base_model.conv1.weight[:, 0]  # Initialize the 4th channel (alpha) with the first channel
+
+        # Modify the final fully connected layer to output 72 classes (for rotation bins)
+        self.base_model.fc = nn.Linear(self.base_model.fc.in_features, 72)
     
     def forward(self, x):
         return self.base_model(x)
 
 # Load model weights from a specified .pth file
 def load_model(model_path):
-    model = EfficientNetV2Model().to(device)
+    model = ResNet50Model().to(device)
     if os.path.exists(model_path):
         model.load_state_dict(torch.load(model_path, map_location=device))
         print(f"Loaded model weights from {model_path}")
@@ -32,8 +43,9 @@ def load_model(model_path):
 # Function to preprocess the image (resize, normalize, etc.)
 def preprocess_image(image_path):
     transform = transforms.Compose([
-        transforms.Resize((128, 128)),
-        transforms.ToTensor()
+        transforms.Resize((256, 256)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406, 0], [0.229, 0.224, 0.225, 1])  # Normalize RGB channels only, leave alpha unchanged
     ])
     
     # Load the image as RGBA (to keep the alpha channel)
@@ -41,14 +53,18 @@ def preprocess_image(image_path):
     image_tensor = transform(image).unsqueeze(0)  # Add batch dimension
     return image, image_tensor  # Return both original image and tensor
 
-
-# Function to predict the rotation angle
-def predict_rotation(model, image_tensor):
+# Function to predict the rotation angle bin (as classification)
+def predict_rotation_bin(model, image_tensor):
     model.eval()
     with torch.no_grad():
         image_tensor = image_tensor.to(device)
-        predicted_angle = model(image_tensor).squeeze().item()
-    return predicted_angle
+        outputs = model(image_tensor)
+        predicted_bin = outputs.argmax(dim=1).item()  # Get the predicted bin (class)
+    return predicted_bin
+
+# Convert the predicted bin back to an angle
+def bin_to_angle(bin_index):
+    return bin_index * 5  # Each bin represents a 5-degree increment
 
 # Function to rotate an image by a given angle and preserve the alpha channel (transparency)
 def rotate_image(image, angle):
@@ -57,8 +73,6 @@ def rotate_image(image, angle):
     
     # Ensure the image remains in RGBA mode to preserve transparency
     return rotated_image.convert("RGBA")
-
-
 
 # Function to plot original and rotated images
 def plot_images(original_image, rotated_image, angle):
@@ -84,8 +98,12 @@ def main(model_path, image_path):
     # Preprocess the image
     original_image, image_tensor = preprocess_image(image_path)
     
-    # Predict the rotation angle
-    predicted_angle = predict_rotation(model, image_tensor)
+    # Predict the rotation bin (0-71, each representing 5-degree increments)
+    predicted_bin = predict_rotation_bin(model, image_tensor)
+    
+    # Convert bin to actual angle
+    predicted_angle = bin_to_angle(predicted_bin)
+    
     print(f"Predicted rotation angle: {predicted_angle:.2f} degrees")
     
     # Rotate the image based on the predicted angle
@@ -98,8 +116,8 @@ def main(model_path, image_path):
 
 if __name__ == "__main__":
     # Specify paths to the model and the image
-    model_path = 'models/model_epoch_7.pth'  # Path to your saved model
-    image_path = '5GN172.820_side-1.png'  # Path to the image you want to process
+    model_path = 'models/rotation_model.pth'  # Path to your saved model
+    image_path = '5GN1876.4_side-2.png'  # Path to the image you want to process
     
     # Run the main function and get the predicted rotation
     rotation = main(model_path, image_path)

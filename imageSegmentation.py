@@ -263,7 +263,7 @@ def crop_image(img_path, probability=0.75):
 
 originals_dir = r"..\ColoradoProjectilePointdatabase/originals"
 image_files = [f for f in os.listdir(originals_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-image_list = image_files[:10]
+image_list = image_files[11:5000]
 
 for img_file in image_list:
     img_path = os.path.join(originals_dir, img_file)
@@ -323,6 +323,6 @@ def correct_image(img_path):
         print(f"Copied '{original_image}' to {destination_mask_path}.")
 
 
-    crop_image(os.path.join("ColoradoProjectilePointdatabase/originals",'5GN1664.7156.png'), probability = .66)
+    crop_image(os.path.join("../ColoradoProjectilePointdatabase/originals",'5GN1876.4.png'), probability = .75)
     correct_image('5_FR_0060101_0008_side-2.png')
     
