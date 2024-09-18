@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, random_split
 from torchvision import transforms, models
+from torchvision.models import ResNet50_Weights
 from PIL import Image, ImageFile
 import numpy as np
 import random
@@ -13,7 +14,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # Set device (GPU if available)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(device)
+print(f"Using device: {device}")
 
 # Custom Dataset for loading images and applying random rotations
 class ProjectilePointDataset(Dataset):
@@ -54,7 +55,7 @@ class ResNet50Model(nn.Module):
     def __init__(self):
         super(ResNet50Model, self).__init__()
         # Load the ResNet-50 model from torchvision
-        self.base_model = models.resnet50(pretrained=True)
+        self.base_model = models.resnet50(weights=ResNet50_Weights.DEFAULT)
 
         # Modify the first convolutional layer to accept 4 input channels (RGBA)
         self.base_model.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
@@ -64,31 +65,27 @@ class ResNet50Model(nn.Module):
             self.base_model.conv1.weight[:, :3] = self.base_model.conv1.weight[:, :3]  # Copy the RGB weights
             self.base_model.conv1.weight[:, 3] = self.base_model.conv1.weight[:, 0]  # Initialize the 4th channel (alpha) with the first channel
 
-        # Modify the final fully connected layer to output 72 classes
-        self.base_model.fc = nn.Linear(self.base_model.fc.in_features, 72)
+        # Modify the final fully connected layer to output 72 classes, adding dropout for regularization
+        self.base_model.fc = nn.Sequential(
+            nn.Dropout(p=0.2),  # 50% dropout to avoid overfitting
+            nn.Linear(self.base_model.fc.in_features, 72)
+        )
     
     def forward(self, x):
         return self.base_model(x)
 
-# Function to load the last saved model weights
-def load_last_checkpoint(model, save_path):
-    checkpoint_files = [f for f in os.listdir(save_path) if f.startswith('rotation_model_epoch_') and f.endswith('.pth')]
-    if checkpoint_files:
-        last_checkpoint = sorted(checkpoint_files, key=lambda x: int(x.split('_')[-1].split('.')[0]))[-1]
-        model_path = os.path.join(save_path, last_checkpoint)
-        model.load_state_dict(torch.load(model_path))
-        print(f"Loaded model weights from {model_path}")
-    else:
-        print("No previous model found, training from scratch.")
-
-# Training function
-def train_model(image_folder, epochs=10, batch_size=32, save_path='models/'):
+# Training function with early stopping and learning rate scheduler
+def train_model(image_folder, epochs=10, batch_size=32, save_path='models/', patience=5):
     try:
         # Create transformations (resize, normalize, etc.)
         transform = transforms.Compose([
-            transforms.Resize((256, 256)),
+            transforms.Resize((512, 512)),  # Switch to 512x512 for higher resolution
+            transforms.RandomHorizontalFlip(),  # Random horizontal flip
+            transforms.RandomVerticalFlip(),    # Random vertical flip
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Color jitter for brightness, contrast, etc.
+            transforms.RandomRotation(degrees=(0, 360)),  # Random rotation
             transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406, 0], [0.229, 0.224, 0.225, 1])  # Normalize RGB channels only, leave alpha unchanged
+            transforms.Normalize([0.485, 0.456, 0.406, 0], [0.229, 0.224, 0.225, 1])  # Normalization
         ])
         
         # Load dataset and split into train and validation sets (80% train, 20% val)
@@ -100,17 +97,16 @@ def train_model(image_folder, epochs=10, batch_size=32, save_path='models/'):
         # Create data loaders
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         
-        # Initialize the model, loss function, and optimizer
+        # Initialize the model, loss function, optimizer, and learning rate scheduler
         model = ResNet50Model().to(device)
         criterion = nn.CrossEntropyLoss()  # CrossEntropyLoss for classification
-        optimizer = optim.Adam(model.parameters(), lr=0.001)
+        optimizer = optim.Adam(model.parameters(), lr=0.0001)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)  # Learning rate scheduler
 
-        # Load the last saved model if available
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
-        else:
-            load_last_checkpoint(model, save_path)
+        best_val_loss = float('inf')
+        epochs_without_improvement = 0
 
+        # Continue training for additional epochs (if needed)
         for epoch in range(epochs):
             # Randomly sample 25% of the training data for each epoch
             subset_size = int(0.25 * len(train_dataset))
@@ -158,9 +154,22 @@ def train_model(image_folder, epochs=10, batch_size=32, save_path='models/'):
             
             with open(os.path.join(save_path, 'training_log.txt'), 'a') as log_file:
                 log_file.write(f"Epoch: {epoch+1}, Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}\n")
-    
+
+            # Early stopping logic
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
+                if epochs_without_improvement >= patience:
+                    print("Early stopping due to no improvement in validation loss.")
+                    break
+
+            # Step the learning rate scheduler
+            scheduler.step()
+
     except Exception as e:
         print(f"An error occurred during training: {str(e)}")
 
-# Train the model with 50 epochs
-train_model(image_folder='cropped', epochs=20, batch_size=32)
+# Start fresh training (no prior model loading)
+train_model(image_folder='cropped', epochs=30, batch_size=16, patience=5)  # Start training for 30 epochs with early stopping
