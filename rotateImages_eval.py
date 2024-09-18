@@ -1,38 +1,40 @@
 import torch
 import torch.nn as nn
-from torchvision import transforms, models
+from torchvision import transforms
 from PIL import Image, ImageOps
 import os
 import matplotlib.pyplot as plt
+import timm  # For EfficientNetV2
 
 # Set device (GPU if available)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Create ResNet50 model with regression output (for continuous rotation angles), modified for 4-channel input
-class ResNet50Model(nn.Module):
+# Create EfficientNetV2 model with regression output (for continuous rotation angles), modified for 4-channel input
+class EfficientNetV2Model(nn.Module):
     def __init__(self):
-        super(ResNet50Model, self).__init__()
-        # Load the ResNet-50 model from torchvision
-        self.base_model = models.resnet50(pretrained=False)
+        super(EfficientNetV2Model, self).__init__()
+        # Load the EfficientNetV2 model from timm
+        self.base_model = timm.create_model('efficientnetv2_s', pretrained=False, num_classes=1)  # 1 output for regression
 
         # Modify the first convolutional layer to accept 4 input channels (RGBA)
-        self.base_model.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
-        
-        # Initialize weights for the new 4-channel conv layer
-        with torch.no_grad():
-            self.base_model.conv1.weight[:, :3] = self.base_model.conv1.weight[:, :3]  # Copy the RGB weights
-            self.base_model.conv1.weight[:, 3] = self.base_model.conv1.weight[:, 0]  # Initialize the 4th channel (alpha) with the first channel
+        self.base_model.conv_stem = nn.Conv2d(4, self.base_model.conv_stem.out_channels,
+                                              kernel_size=self.base_model.conv_stem.kernel_size,
+                                              stride=self.base_model.conv_stem.stride,
+                                              padding=self.base_model.conv_stem.padding,
+                                              bias=False)
 
-        # Modify the final fully connected layer to output 1 value for regression (predicting the rotation angle)
-        self.base_model.fc = nn.Linear(self.base_model.fc.in_features, 1)  # 1 output for regression
-    
+        # Initialize weights for the new 4-channel conv layer by copying the pretrained 3-channel weights
+        with torch.no_grad():
+            self.base_model.conv_stem.weight[:, :3] = self.base_model.conv_stem.weight[:, :3]  # Copy RGB weights
+            self.base_model.conv_stem.weight[:, 3] = self.base_model.conv_stem.weight[:, 0]  # Initialize alpha channel weights
+
     def forward(self, x):
         return self.base_model(x)
 
 # Load model weights from a specified .pth file
 def load_model(model_path):
-    model = ResNet50Model().to(device)
+    model = EfficientNetV2Model().to(device)
     if os.path.exists(model_path):
         model.load_state_dict(torch.load(model_path, map_location=device))
         print(f"Loaded model weights from {model_path}")
@@ -43,7 +45,7 @@ def load_model(model_path):
 # Function to preprocess the image (resize, normalize, etc.)
 def preprocess_image(image_path):
     transform = transforms.Compose([
-        transforms.Resize((256, 256)),
+        transforms.Resize((128, 128)),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406, 0], [0.229, 0.224, 0.225, 1])  # Normalize RGB channels only, leave alpha unchanged
     ])
@@ -108,7 +110,7 @@ def main(model_path, image_path):
 
 if __name__ == "__main__":
     # Specify paths to the model and the image
-    model_path = 'models/rotation_model.pth'  # Path to your saved model
+    model_path = 'models/rotation_model_object.pth'  # Path to your saved model
     image_path = '5GN1876.4_side-2.png'  # Path to the image you want to process
     
     # Run the main function and get the predicted rotation
