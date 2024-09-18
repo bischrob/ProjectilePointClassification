@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, random_split
-from torchvision import transforms
+from torchvision import transforms, models
 from PIL import Image, ImageFile
 import numpy as np
 import random
@@ -49,13 +49,23 @@ class ProjectilePointDataset(Dataset):
 
         return image, torch.tensor(angle_bin).long()  # Return the image and its angle bin
 
-# Create EfficientNetV2 model with classification output (72 classes) from PyTorch Hub
-class EfficientNetV2Model(nn.Module):
+# Create ResNet50 model with classification output (72 classes), modified for 4-channel input
+class ResNet50Model(nn.Module):
     def __init__(self):
-        super(EfficientNetV2Model, self).__init__()
-        # Load the EfficientNetV2 model from PyTorch Hub
-        self.base_model = torch.hub.load('rwightman/gen-efficientnet-pytorch', 'efficientnetv2_s', pretrained=False)
-        self.base_model.classifier = nn.Linear(self.base_model.classifier.in_features, 72)  # 72 bins for 360 degrees
+        super(ResNet50Model, self).__init__()
+        # Load the ResNet-50 model from torchvision
+        self.base_model = models.resnet50(pretrained=True)
+
+        # Modify the first convolutional layer to accept 4 input channels (RGBA)
+        self.base_model.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+        
+        # Initialize weights for the new 4-channel conv layer by copying the pre-trained 3-channel weights
+        with torch.no_grad():
+            self.base_model.conv1.weight[:, :3] = self.base_model.conv1.weight[:, :3]  # Copy the RGB weights
+            self.base_model.conv1.weight[:, 3] = self.base_model.conv1.weight[:, 0]  # Initialize the 4th channel (alpha) with the first channel
+
+        # Modify the final fully connected layer to output 72 classes
+        self.base_model.fc = nn.Linear(self.base_model.fc.in_features, 72)
     
     def forward(self, x):
         return self.base_model(x)
@@ -91,7 +101,7 @@ def train_model(image_folder, epochs=10, batch_size=32, save_path='models/'):
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         
         # Initialize the model, loss function, and optimizer
-        model = EfficientNetV2Model().to(device)
+        model = ResNet50Model().to(device)
         criterion = nn.CrossEntropyLoss()  # CrossEntropyLoss for classification
         optimizer = optim.Adam(model.parameters(), lr=0.001)
 
@@ -152,5 +162,5 @@ def train_model(image_folder, epochs=10, batch_size=32, save_path='models/'):
     except Exception as e:
         print(f"An error occurred during training: {str(e)}")
 
-# Train the model with 10 epochs
-train_model(image_folder='../ColoradoProjectilePointdatabase/cropped', epochs=50, batch_size=32)
+# Train the model with 50 epochs
+train_model(image_folder='cropped', epochs=20, batch_size=32)
