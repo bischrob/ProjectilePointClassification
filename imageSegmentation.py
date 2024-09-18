@@ -15,7 +15,7 @@ model = smp.Unet(
 )
 
 # Load the fine-tuned weights
-model.load_state_dict(torch.load("ColoradoProjectilePointdatabase/resnet34_pointsv3.pth"))
+model.load_state_dict(torch.load("models/resnet34_pointsv4.pth"))
 
 # Set the model to evaluation mode
 model.eval()
@@ -24,7 +24,7 @@ model.eval()
 # img = Image.open(r"ColoradoProjectilePointdatabase\originals\5MT10991.8638.png").convert("RGB")
 # img = Image.open(r"ColoradoProjectilePointdatabase\originals\5SH1458_0016.png").convert("RGB")
 # img = Image.open(r"ColoradoProjectilePointdatabase\originals\5_MO_0320100_0333.png").convert("RGB")
-img = Image.open(r"ColoradoProjectilePointdatabase\originals\5SM3459.2.png").convert("RGB")
+img = Image.open(r"..\ColoradoProjectilePointdatabase\originals\5SM3459.2.png").convert("RGB")
 
 
 # Crop the image to remove rulers
@@ -33,7 +33,7 @@ img = Image.open(r"ColoradoProjectilePointdatabase\originals\5SM3459.2.png").con
 
 # Define the necessary transformations
 preprocess = transforms.Compose([
-    transforms.Resize((1248, 1248)),  # Resize to the input size expected by the model
+    transforms.Resize((2048, 2048)),  # Resize to the input size expected by the model
     transforms.ToTensor(),            # Convert the image to a tensor
     transforms.Normalize(             # Normalize with ImageNet mean and std
         mean=[0.485, 0.456, 0.406], 
@@ -78,12 +78,12 @@ cropped_dir = "ColoradoProjectilePointdatabase/cropped"
 os.makedirs(cropped_dir, exist_ok=True)
 
 # Load the original image (replace with your image path)
-img = Image.open(r"ColoradoProjectilePointdatabase/originals/5SM3459.2.png").convert("RGB")
+img = Image.open(r"..\ColoradoProjectilePointdatabase/originals/5SM3459.2.png").convert("RGB")
 original_width, original_height = img.size
 
 # Load the corresponding segmentation mask (already predicted by the model)
 # Assume `output_mask` is available from earlier code and is binary
-resized_width, resized_height = 1248, 1248
+resized_width, resized_height = 2048, 2048
 
 # Resize the image for segmentation (not for final cropping)
 img_resized = img.resize((resized_width, resized_height), Image.Resampling.LANCZOS)
@@ -165,7 +165,7 @@ plt.show()
 
 #### function ####
 
-def crop_image(img_path, probability=0.66):
+def crop_image(img_path, probability=0.75):
     import torch
     import segmentation_models_pytorch as smp
     from torchvision import transforms
@@ -181,13 +181,13 @@ def crop_image(img_path, probability=0.66):
         in_channels=3,                  # Input channels (3 for RGB)
         classes=1                       # Output classes (1 for binary segmentation)
     )
-    model.load_state_dict(torch.load("ColoradoProjectilePointdatabase/resnet34_pointsv3.pth"))
+    model.load_state_dict(torch.load("models/resnet34_pointsv4.pth"))
     model.eval()
     
     # Load the image
     img = Image.open(img_path).convert("RGB")
     original_width, original_height = img.size
-    resized_width, resized_height = 1248, 1248
+    resized_width, resized_height = 2048, 2048
     
     # Preprocess the image
     preprocess = transforms.Compose([
@@ -209,7 +209,7 @@ def crop_image(img_path, probability=0.66):
     output_mask = (output > probability).astype(np.uint8)
     
     # Create directories for saving cropped images
-    cropped_dir = "ColoradoProjectilePointdatabase/cropped"
+    cropped_dir = "../ColoradoProjectilePointdatabase/cropped"
     os.makedirs(cropped_dir, exist_ok=True)
 
     # Resize the original image and mask using LANCZOS interpolation
@@ -261,13 +261,13 @@ def crop_image(img_path, probability=0.66):
         print(f"Saved: {img_name}")
 
 
-originals_dir = r"ColoradoProjectilePointdatabase/originals"
+originals_dir = r"..\ColoradoProjectilePointdatabase/originals"
 image_files = [f for f in os.listdir(originals_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-image_list = image_files[3501:4000]
+image_list = image_files[:10]
 
 for img_file in image_list:
     img_path = os.path.join(originals_dir, img_file)
-    crop_image(img_path, probability = .95)
+    crop_image(img_path, probability = .75)
 
 
 def correct_image(img_path):
