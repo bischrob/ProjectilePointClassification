@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Create ResNet50 model with classification output (72 classes), modified for 4-channel input
+# Create ResNet50 model with regression output (for continuous rotation angles), modified for 4-channel input
 class ResNet50Model(nn.Module):
     def __init__(self):
         super(ResNet50Model, self).__init__()
@@ -24,8 +24,8 @@ class ResNet50Model(nn.Module):
             self.base_model.conv1.weight[:, :3] = self.base_model.conv1.weight[:, :3]  # Copy the RGB weights
             self.base_model.conv1.weight[:, 3] = self.base_model.conv1.weight[:, 0]  # Initialize the 4th channel (alpha) with the first channel
 
-        # Modify the final fully connected layer to output 72 classes (for rotation bins)
-        self.base_model.fc = nn.Linear(self.base_model.fc.in_features, 72)
+        # Modify the final fully connected layer to output 1 value for regression (predicting the rotation angle)
+        self.base_model.fc = nn.Linear(self.base_model.fc.in_features, 1)  # 1 output for regression
     
     def forward(self, x):
         return self.base_model(x)
@@ -53,18 +53,13 @@ def preprocess_image(image_path):
     image_tensor = transform(image).unsqueeze(0)  # Add batch dimension
     return image, image_tensor  # Return both original image and tensor
 
-# Function to predict the rotation angle bin (as classification)
-def predict_rotation_bin(model, image_tensor):
+# Function to predict the rotation angle (regression task)
+def predict_rotation_angle(model, image_tensor):
     model.eval()
     with torch.no_grad():
         image_tensor = image_tensor.to(device)
-        outputs = model(image_tensor)
-        predicted_bin = outputs.argmax(dim=1).item()  # Get the predicted bin (class)
-    return predicted_bin
-
-# Convert the predicted bin back to an angle
-def bin_to_angle(bin_index):
-    return bin_index * 5  # Each bin represents a 5-degree increment
+        predicted_angle = model(image_tensor).item()  # Get the predicted rotation angle (single output)
+    return predicted_angle
 
 # Function to rotate an image by a given angle and preserve the alpha channel (transparency)
 def rotate_image(image, angle):
@@ -98,11 +93,8 @@ def main(model_path, image_path):
     # Preprocess the image
     original_image, image_tensor = preprocess_image(image_path)
     
-    # Predict the rotation bin (0-71, each representing 5-degree increments)
-    predicted_bin = predict_rotation_bin(model, image_tensor)
-    
-    # Convert bin to actual angle
-    predicted_angle = bin_to_angle(predicted_bin)
+    # Predict the rotation angle
+    predicted_angle = predict_rotation_angle(model, image_tensor)
     
     print(f"Predicted rotation angle: {predicted_angle:.2f} degrees")
     
