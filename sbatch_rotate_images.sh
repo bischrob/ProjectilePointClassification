@@ -22,14 +22,6 @@ module load mamba/latest
 echo "Activating the pytorch-gpu-2.3.1-cuda-12.1 environment"
 source activate pytorch-gpu-2.3.1-cuda-12.1
 
-# Ensure the environment is ready
-echo "Verifying installation and environment"
-mamba list
-
-# Ensure internet access is enabled for PyTorch Hub to download the model
-echo "Ensuring internet access for PyTorch Hub"
-ping -c 3 github.com  # Simple ping to check internet connectivity
-
 # Run the training script rotateImages_train.py
 echo "Running rotateImages_train.py"
 python rotateImages_train.py
