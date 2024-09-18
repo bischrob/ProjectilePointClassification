@@ -7,7 +7,6 @@ from torchvision import transforms
 from PIL import Image, ImageFile
 import numpy as np
 import random
-import timm  # For EfficientNetV2
 
 # Ensure truncated images are loaded properly
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -50,19 +49,20 @@ class ProjectilePointDataset(Dataset):
 
         return image, torch.tensor(angle_bin).long()  # Return the image and its angle bin
 
-# Create EfficientNetV2 model with classification output (72 classes)
+# Create EfficientNetV2 model with classification output (72 classes) from PyTorch Hub
 class EfficientNetV2Model(nn.Module):
     def __init__(self):
         super(EfficientNetV2Model, self).__init__()
-        # Load the EfficientNetV2 model
-        self.base_model = timm.create_model('efficientnetv2_s', pretrained=False, num_classes=72)  # 72 bins for 360 degrees
+        # Load the EfficientNetV2 model from PyTorch Hub
+        self.base_model = torch.hub.load('rwightman/gen-efficientnet-pytorch', 'efficientnetv2_s', pretrained=False)
+        self.base_model.classifier = nn.Linear(self.base_model.classifier.in_features, 72)  # 72 bins for 360 degrees
     
     def forward(self, x):
         return self.base_model(x)
 
 # Function to load the last saved model weights
 def load_last_checkpoint(model, save_path):
-    checkpoint_files = [f for f in os.listdir(save_path) if f.startswith('model_epoch_') and f.endswith('.pth')]
+    checkpoint_files = [f for f in os.listdir(save_path) if f.startswith('rotation_model_epoch_') and f.endswith('.pth')]
     if checkpoint_files:
         last_checkpoint = sorted(checkpoint_files, key=lambda x: int(x.split('_')[-1].split('.')[0]))[-1]
         model_path = os.path.join(save_path, last_checkpoint)
@@ -143,7 +143,7 @@ def train_model(image_folder, epochs=10, batch_size=32, save_path='models/'):
             print(f"Epoch [{epoch+1}/{epochs}], Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}")
 
             # Save the model and log the epoch results
-            model_save_path = os.path.join(save_path, f'model_epoch_{epoch+1}.pth')
+            model_save_path = os.path.join(save_path, f'rotation_model_epoch_{epoch+1}.pth')
             torch.save(model.state_dict(), model_save_path)
             
             with open(os.path.join(save_path, 'training_log.txt'), 'a') as log_file:
