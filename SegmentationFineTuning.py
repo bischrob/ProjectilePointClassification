@@ -9,7 +9,7 @@ from torchvision import transforms
 from torch.utils.data import DataLoader
 import random
 
-size = 1024
+size = 2048
 
 class ProjectilePointDataset(Dataset):
     def __init__(self, image_dir, mask_dir, transform=None):
@@ -47,13 +47,13 @@ train_transform = transforms.Compose([
 
 def train_model():
     # Load all problematic images from training_dataset_tmp and training_mask_tmp
-    tmp_dataset = ProjectilePointDataset(image_dir="ColoradoProjectilePointdatabase/training_dataset_tmp",
-                                         mask_dir="ColoradoProjectilePointdatabase/training_masks_tmp",
+    tmp_dataset = ProjectilePointDataset(image_dir="training_dataset_tmp",
+                                         mask_dir="training_masks_tmp",
                                          transform=train_transform)
 
     # Load the full original dataset
-    original_dataset = ProjectilePointDataset(image_dir="ColoradoProjectilePointdatabase/training_dataset",
-                                              mask_dir="ColoradoProjectilePointdatabase/training_masks",
+    original_dataset = ProjectilePointDataset(image_dir="training_dataset",
+                                              mask_dir="training_masks",
                                               transform=train_transform)
 
     # Total size of the original dataset
@@ -65,7 +65,7 @@ def train_model():
 
     # Training loop
     num_epochs = 20  # adjustable
-    log_file_path = "ColoradoProjectilePointdatabase/training_log.txt"  # Log file path
+    log_file_path = "training_log.txt"  # Log file path
 
     # Load the pre-trained U-Net model
     model = smp.Unet(
@@ -120,7 +120,7 @@ def train_model():
             print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}")
 
             # Save the model with epoch number appended to the filename
-            model_save_path = f"ColoradoProjectilePointdatabase/resnet34_pointsv4_epoch_{epoch+1}.pth"
+            model_save_path = f"resnet34_pointsv4_epoch_{epoch+1}.pth"
             torch.save(model.state_dict(), model_save_path)
             print(f"Model saved: {model_save_path}")
 
