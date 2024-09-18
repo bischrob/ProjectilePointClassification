@@ -11,6 +11,7 @@ import timm  # For EfficientNetV2
 
 # Set device (GPU if available)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
 
 # Custom Dataset for loading images and applying random rotations
 class ProjectilePointDataset(Dataset):
@@ -41,7 +42,7 @@ class ProjectilePointDataset(Dataset):
 class EfficientNetV2Model(nn.Module):
     def __init__(self):
         super(EfficientNetV2Model, self).__init__()
-        self.base_model = timm.create_model('efficientnetv2_s', pretrained=True, num_classes=1)
+        self.base_model = timm.create_model('efficientnetv2_s', pretrained=False, num_classes=1)
     
     def forward(self, x):
         return self.base_model(x)
@@ -121,4 +122,4 @@ def train_model(image_folder, epochs=10, batch_size=32, save_path='models/'):
         print(f"An error occurred during training: {str(e)}")
 
 # Train the model with 10 epochs
-train_model(image_folder='cropped', epochs=10, batch_size=32)
+train_model(image_folder='../ColoradoProjectilePointdatabase/cropped', epochs=10, batch_size=32)
