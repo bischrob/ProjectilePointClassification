@@ -145,6 +145,9 @@ class RotationAndBBoxModel(nn.Module):
 
 from shapely.geometry import Polygon
 
+from shapely.geometry import Polygon
+from shapely.validation import explain_validity
+
 def calculate_iou(pred_boxes, true_boxes):
     """
     Calculate the IoU (Intersection over Union) between two sets of rotated bounding boxes.
@@ -164,6 +167,14 @@ def calculate_iou(pred_boxes, true_boxes):
         pred_polygon = Polygon(pred_boxes[i])  # Create polygon for predicted box
         true_polygon = Polygon(true_boxes[i])  # Create polygon for true box
 
+        # Validate the polygons
+        if not pred_polygon.is_valid:
+            print(f"Invalid predicted polygon: {explain_validity(pred_polygon)}")
+            continue  # Skip invalid polygons
+        if not true_polygon.is_valid:
+            print(f"Invalid true polygon: {explain_validity(true_polygon)}")
+            continue  # Skip invalid polygons
+
         # Compute intersection and union areas
         intersection_area = pred_polygon.intersection(true_polygon).area
         union_area = pred_polygon.union(true_polygon).area
@@ -172,7 +183,8 @@ def calculate_iou(pred_boxes, true_boxes):
         iou = intersection_area / union_area if union_area > 0 else 0
         ious.append(iou)
 
-    return sum(ious) / len(ious)  # Return the average IoU across the batch
+    return sum(ious) / len(ious) if ious else 0  # Return average IoU, or 0 if none are valid
+
 
 
 # Custom collate function to handle None values (bad images)
