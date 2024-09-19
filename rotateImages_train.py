@@ -150,20 +150,22 @@ def calculate_iou(pred_boxes, true_boxes):
 
     ious = []
     for i in range(len(pred_boxes)):
-        # Calculate the intersection coordinates
-        x_min_inter = max(pred_boxes[i][0], true_boxes[i][0])
-        y_min_inter = max(pred_boxes[i][1], true_boxes[i][1])
-        x_max_inter = min(pred_boxes[i][2], true_boxes[i][2])
-        y_max_inter = min(pred_boxes[i][3], true_boxes[i][3])
+        # Coordinates for intersection
+        x_min_inter = np.maximum(pred_boxes[i][:, 0], true_boxes[i][:, 0])  # Element-wise max
+        y_min_inter = np.maximum(pred_boxes[i][:, 1], true_boxes[i][:, 1])  # Element-wise max
+        x_max_inter = np.minimum(pred_boxes[i][:, 0], true_boxes[i][:, 0])  # Element-wise min
+        y_max_inter = np.minimum(pred_boxes[i][:, 1], true_boxes[i][:, 1])  # Element-wise min
 
-        # Calculate the intersection area
-        intersection_area = max(0, x_max_inter - x_min_inter) * max(0, y_max_inter - y_min_inter)
+        # Intersection area (if no intersection, the area should be 0)
+        inter_width = np.clip(x_max_inter - x_min_inter, 0, None)
+        inter_height = np.clip(y_max_inter - y_min_inter, 0, None)
+        intersection_area = inter_width * inter_height
 
-        # Calculate the area of both the predicted and true bounding boxes
-        pred_box_area = (pred_boxes[i][2] - pred_boxes[i][0]) * (pred_boxes[i][3] - pred_boxes[i][1])
-        true_box_area = (true_boxes[i][2] - true_boxes[i][0]) * (true_boxes[i][3] - true_boxes[i][1])
+        # Area of predicted and true bounding boxes
+        pred_box_area = np.abs(np.linalg.norm(pred_boxes[i][2] - pred_boxes[i][0])) * np.abs(np.linalg.norm(pred_boxes[i][2] - pred_boxes[i][1]))
+        true_box_area = np.abs(np.linalg.norm(true_boxes[i][2] - true_boxes[i][0])) * np.abs(np.linalg.norm(true_boxes[i][2] - true_boxes[i][1]))
 
-        # Calculate the union area
+        # Union area
         union_area = pred_box_area + true_box_area - intersection_area
 
         # Compute IoU
@@ -171,6 +173,7 @@ def calculate_iou(pred_boxes, true_boxes):
         ious.append(iou)
 
     return sum(ious) / len(ious)
+
 
 # Custom collate function to handle None values (bad images)
 def collate_fn(batch):
