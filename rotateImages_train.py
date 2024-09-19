@@ -143,36 +143,36 @@ class RotationAndBBoxModel(nn.Module):
     def forward(self, x):
         return self.model(x)
 
-# Function to calculate Intersection over Union (IoU) for bounding boxes
+from shapely.geometry import Polygon
+
 def calculate_iou(pred_boxes, true_boxes):
+    """
+    Calculate the IoU (Intersection over Union) between two sets of rotated bounding boxes.
+    Both pred_boxes and true_boxes are assumed to be arrays of shape (batch_size, 4, 2)
+    representing the 4 corners of the bounding boxes.
+
+    :param pred_boxes: Predicted bounding boxes as corners (batch_size, 4, 2)
+    :param true_boxes: Ground truth bounding boxes as corners (batch_size, 4, 2)
+    :return: Average IoU across the batch
+    """
     pred_boxes = pred_boxes.cpu().detach().numpy()
     true_boxes = true_boxes.cpu().detach().numpy()
 
     ious = []
     for i in range(len(pred_boxes)):
-        # Coordinates for intersection
-        x_min_inter = np.maximum(pred_boxes[i][:, 0], true_boxes[i][:, 0])  # Element-wise max
-        y_min_inter = np.maximum(pred_boxes[i][:, 1], true_boxes[i][:, 1])  # Element-wise max
-        x_max_inter = np.minimum(pred_boxes[i][:, 0], true_boxes[i][:, 0])  # Element-wise min
-        y_max_inter = np.minimum(pred_boxes[i][:, 1], true_boxes[i][:, 1])  # Element-wise min
+        # Create polygons for the predicted and true boxes using their corners
+        pred_polygon = Polygon(pred_boxes[i])  # Create polygon for predicted box
+        true_polygon = Polygon(true_boxes[i])  # Create polygon for true box
 
-        # Intersection area (if no intersection, the area should be 0)
-        inter_width = np.clip(x_max_inter - x_min_inter, 0, None)
-        inter_height = np.clip(y_max_inter - y_min_inter, 0, None)
-        intersection_area = inter_width * inter_height
-
-        # Area of predicted and true bounding boxes
-        pred_box_area = np.abs(np.linalg.norm(pred_boxes[i][2] - pred_boxes[i][0])) * np.abs(np.linalg.norm(pred_boxes[i][2] - pred_boxes[i][1]))
-        true_box_area = np.abs(np.linalg.norm(true_boxes[i][2] - true_boxes[i][0])) * np.abs(np.linalg.norm(true_boxes[i][2] - true_boxes[i][1]))
-
-        # Union area
-        union_area = pred_box_area + true_box_area - intersection_area
+        # Compute intersection and union areas
+        intersection_area = pred_polygon.intersection(true_polygon).area
+        union_area = pred_polygon.union(true_polygon).area
 
         # Compute IoU
         iou = intersection_area / union_area if union_area > 0 else 0
         ious.append(iou)
 
-    return sum(ious) / len(ious)
+    return sum(ious) / len(ious)  # Return the average IoU across the batch
 
 
 # Custom collate function to handle None values (bad images)

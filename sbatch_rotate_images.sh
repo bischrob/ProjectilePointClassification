@@ -18,6 +18,9 @@ cd $SLURM_SUBMIT_DIR
 echo "Loading mamba module"
 module load mamba/latest
 
+echo "installing packages"
+mamba install shapely
+
 # Activate the existing pytorch environment
 echo "Activating the pytorch-gpu-2.3.1-cuda-12.1 environment"
 source activate pytorch-gpu-2.3.1-cuda-12.1
