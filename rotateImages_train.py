@@ -5,6 +5,7 @@ from torchvision import transforms
 from PIL import Image, UnidentifiedImageError
 import os
 import random
+import numpy as np
 import timm  # For EfficientNet or other pre-trained models
 import re
 
@@ -12,7 +13,7 @@ import re
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Custom Dataset to dynamically apply random rotations and generate labels (angles)
+# Custom Dataset to dynamically apply random rotations and generate labels (angles + bounding boxes)
 class ProjectilePointDataset(Dataset):
     def __init__(self, image_folder, transform=None):
         self.image_folder = image_folder
@@ -28,37 +29,114 @@ class ProjectilePointDataset(Dataset):
         try:
             # Try loading the image as RGBA
             image = Image.open(img_path).convert('RGBA')
-            
+
+            # Calculate the bounding box for the original image
+            bbox = self.get_bounding_box(image)
+
             # Apply random rotation dynamically
             angle = random.uniform(0, 360)  # Random angle between 0 and 360 degrees
-            rotated_image = transforms.functional.rotate(image, angle)
-            
+            rotated_image = transforms.functional.rotate(image, angle, expand=True)
+
+            # Rotate the bounding box using the same angle
+            rotated_bbox = self.rotate_bounding_box(bbox, angle, image.size)
+
+            # Resize the rotated image to a fixed size (e.g., 128x128) for batching
+            fixed_size = (128, 128)
+            original_size = rotated_image.size
+            rotated_image = rotated_image.resize(fixed_size)
+
+            # Scale the bounding box to match the resized image
+            scaled_bbox = self.scale_bounding_box(rotated_bbox, original_size, fixed_size)
+
             # Apply other transformations (e.g., augmentations)
             if self.transform:
                 rotated_image = self.transform(rotated_image)
-            
-            return rotated_image, torch.tensor(angle).float()  # Return the image and its rotation angle as label
-        
+
+            # Convert the four corners of the bounding box to [x_min, y_min, x_max, y_max] format
+            x_min, y_min = scaled_bbox.min(axis=0)
+            x_max, y_max = scaled_bbox.max(axis=0)
+            bbox_tensor = torch.tensor([x_min, y_min, x_max, y_max], dtype=torch.float32)
+
+            return rotated_image, torch.tensor(angle).float(), bbox_tensor
+
         except (OSError, UnidentifiedImageError) as e:
-            # Handle the truncated image or other loading errors
+            # If image loading fails, return None to signal a corrupted/bad image
             print(f"Skipping file {img_path} due to error: {e}")
-            return None  # Return None to indicate failure
+            return None
+
+    def get_bounding_box(self, image):
+        # Calculate bounding box based on non-transparent pixels (alpha > 0)
+        image_array = np.array(image)
+        alpha_channel = image_array[:, :, 3]  # Extract alpha channel
+        non_zero_coords = np.argwhere(alpha_channel > 0)  # Get non-zero alpha pixel coordinates
+        
+        if non_zero_coords.size > 0:
+            y_min, x_min = non_zero_coords.min(axis=0)
+            y_max, x_max = non_zero_coords.max(axis=0)
+            return [x_min, y_min, x_max, y_max]
+        else:
+            # If no non-transparent pixels are found, return a default bounding box (whole image)
+            return [0, 0, image.size[0], image.size[1]]
+
+    def rotate_bounding_box(self, bbox, angle, image_size):
+        width, height = image_size
+        angle_rad = np.deg2rad(angle)  # Convert angle to radians
+
+        # Coordinates of the four corners of the bounding box
+        corners = np.array([
+            [bbox[0], bbox[1]],  # Top-left
+            [bbox[2], bbox[1]],  # Top-right
+            [bbox[2], bbox[3]],  # Bottom-right
+            [bbox[0], bbox[3]]   # Bottom-left
+        ])
+
+        # Find center of the image
+        center = np.array([width / 2, height / 2])
+
+        # Translate corners to origin (center of the image)
+        translated_corners = corners - center
+
+        # Rotation matrix
+        rotation_matrix = np.array([
+            [np.cos(angle_rad), -np.sin(angle_rad)],
+            [np.sin(angle_rad), np.cos(angle_rad)]
+        ])
+
+        # Rotate corners
+        rotated_corners = np.dot(translated_corners, rotation_matrix)
+
+        # Translate corners back
+        rotated_corners = rotated_corners + center
+
+        return rotated_corners
+
+    def scale_bounding_box(self, rotated_corners, original_size, new_size):
+        # Scale bounding box from original size to new size
+        orig_w, orig_h = original_size
+        new_w, new_h = new_size
+
+        x_scale = new_w / orig_w
+        y_scale = new_h / orig_h
+
+        scaled_corners = rotated_corners * np.array([x_scale, y_scale])
+
+        return scaled_corners
 
 # Data loader wrapper to skip None values (corrupted or failed images)
 def collate_fn(batch):
     # Filter out None values
     batch = [data for data in batch if data is not None]
     if len(batch) == 0:
-        return None, None
-    images, labels = zip(*batch)
-    return torch.stack(images), torch.stack(labels)
+        return None, None, None
+    images, labels, bboxes = zip(*batch)
+    return torch.stack(images), torch.stack(labels), torch.stack(bboxes)
 
 # Create a model, for example, using EfficientNetV2 or ResNet50
-class RotationModel(nn.Module):
+class RotationAndBBoxModel(nn.Module):
     def __init__(self):
-        super(RotationModel, self).__init__()
+        super(RotationAndBBoxModel, self).__init__()
         # Here, using EfficientNetV2 without pretrained weights (random initialization)
-        self.base_model = timm.create_model('efficientnetv2_s', pretrained=False, num_classes=1)  # 1 output for regression (angle)
+        self.base_model = timm.create_model('efficientnetv2_s', pretrained=False, num_classes=5)  # 1 for angle + 4 for bbox
 
         # Modify the first convolutional layer to accept 4 input channels (RGBA)
         self.base_model.conv_stem = nn.Conv2d(4, self.base_model.conv_stem.out_channels,
@@ -74,19 +152,6 @@ class RotationModel(nn.Module):
 
     def forward(self, x):
         return self.base_model(x)
-
-# Function to find the last saved epoch
-def get_last_checkpoint(save_path):
-    files = os.listdir(save_path)
-    epoch_files = [f for f in files if f.startswith("rotate_model_object_epoch_") and f.endswith(".pth")]
-    if not epoch_files:
-        return 0, None
-    
-    # Extract the epoch number from filenames
-    epoch_files = sorted(epoch_files, key=lambda f: int(re.findall(r'\d+', f)[0]))
-    last_epoch_file = epoch_files[-1]
-    last_epoch = int(re.findall(r'\d+', last_epoch_file)[0])
-    return last_epoch, os.path.join(save_path, last_epoch_file)
 
 # Training function
 def train_model(image_folder, epochs=30, batch_size=32, save_path='models/'):
@@ -115,67 +180,68 @@ def train_model(image_folder, epochs=30, batch_size=32, save_path='models/'):
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
         
         # Initialize the model, loss function, and optimizer
-        model = RotationModel().to(device)
-        criterion = nn.MSELoss()  # Mean Squared Error for regression task (predicting angle)
+        model = RotationAndBBoxModel().to(device)
+        criterion = nn.MSELoss()  # Mean Squared Error for regression task (predicting angle and bbox)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-        # Check if previous checkpoints exist and load the latest checkpoint
-        last_epoch, checkpoint_path = get_last_checkpoint(save_path)
-        if last_epoch > 0:
-            print(f"Resuming training from epoch {last_epoch}. Loading checkpoint from {checkpoint_path}.")
-            model.load_state_dict(torch.load(checkpoint_path))
-            optimizer_state_path = checkpoint_path.replace('.pth', '_optimizer.pth')
-            if os.path.exists(optimizer_state_path):
-                optimizer.load_state_dict(torch.load(optimizer_state_path))
-        else:
-            print("Starting training from scratch.")
-
-        for epoch in range(last_epoch, last_epoch + epochs):
-            # Training phase
-            model.train()
-            running_loss = 0.0
-            for inputs, labels in train_loader:
-                if inputs is None:  # Skip empty batches (all None)
-                    continue
-
-                inputs, labels = inputs.to(device), labels.to(device)
-
-                optimizer.zero_grad()
-                outputs = model(inputs)
-                loss = criterion(outputs.squeeze(), labels)
-                loss.backward()
-                optimizer.step()
-
-                running_loss += loss.item()
-
-            epoch_loss = running_loss / len(train_loader)
-
-            # Validation phase
-            model.eval()
-            val_loss = 0.0
-            with torch.no_grad():
-                for inputs, labels in val_loader:
-                    if inputs is None:
+        # Open log file for appending
+        with open("training_log.txt", "a") as log_file:
+            for epoch in range(epochs):
+                # Training phase
+                model.train()
+                running_loss = 0.0
+                for inputs, labels, bboxes in train_loader:
+                    if inputs is None:  # Skip empty batches (all None)
                         continue
-                    inputs, labels = inputs.to(device), labels.to(device)
+
+                    inputs, labels, bboxes = inputs.to(device), labels.to(device), bboxes.to(device)
+
+                    optimizer.zero_grad()
                     outputs = model(inputs)
-                    loss = criterion(outputs.squeeze(), labels)
-                    val_loss += loss.item()
+                    angles_pred = outputs[:, 0]  # First output is the predicted angle
+                    bbox_pred = outputs[:, 1:]   # Remaining outputs are the bounding box
 
-            val_loss /= len(val_loader)
-            
-            print(f"Epoch [{epoch+1}/{last_epoch + epochs}], Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}")
+                    # Compute the losses for angle prediction and bounding box
+                    angle_loss = criterion(angles_pred, labels)
+                    bbox_loss = criterion(bbox_pred, bboxes)
+                    loss = angle_loss + bbox_loss
 
-            # Save the model and log the results for each epoch
-            model_save_path = os.path.join(save_path, f'rotate_model_object_epoch_{epoch+1}.pth')
-            torch.save(model.state_dict(), model_save_path)
-            torch.save(optimizer.state_dict(), model_save_path.replace('.pth', '_optimizer.pth'))
-            
-            with open(os.path.join(save_path, 'training_log.txt'), 'a') as log_file:
-                log_file.write(f"Epoch: {epoch+1}, Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}\n")
+                    loss.backward()
+                    optimizer.step()
+
+                    running_loss += loss.item()
+
+                epoch_loss = running_loss / len(train_loader)
+
+                # Validation phase
+                model.eval()
+                val_loss = 0.0
+                with torch.no_grad():
+                    for inputs, labels, bboxes in val_loader:
+                        if inputs is None:
+                            continue
+                        inputs, labels, bboxes = inputs.to(device), labels.to(device), bboxes.to(device)
+                        outputs = model(inputs)
+                        angles_pred = outputs[:, 0]
+                        bbox_pred = outputs[:, 1:]
+                        angle_loss = criterion(angles_pred, labels)
+                        bbox_loss = criterion(bbox_pred, bboxes)
+                        val_loss += (angle_loss + bbox_loss).item()
+
+                val_loss /= len(val_loader)
+
+                # Log to console and file
+                log_message = f"Epoch [{epoch+1}/{epochs}], Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}"
+                print(log_message)
+                log_file.write(log_message + "\n")  # Write to log file
+
+                # Save the model and log the results for each epoch
+                model_save_path = os.path.join(save_path, f'rotate_model_object_epoch_{epoch+1}.pth')
+                torch.save(model.state_dict(), model_save_path)
     
     except Exception as e:
         print(f"An error occurred during training: {str(e)}")
+
 
 # Train the model with dynamically rotated images
 if __name__ == "__main__":
