@@ -211,37 +211,37 @@ def train_model(image_folder, epochs=10, batch_size=16, learning_rate=0.001, log
             mae_total = 0
             iou_total = 0
 
-           for batch_idx, (images, angles, bboxes) in enumerate(dataloader):
-            images, angles, bboxes = images.to(device), angles.to(device), bboxes.to(device)
+            for batch_idx, (images, angles, bboxes) in enumerate(dataloader):
+                images, angles, bboxes = images.to(device), angles.to(device), bboxes.to(device)
 
-            optimizer.zero_grad()
-            outputs = model(images)
-            angle_preds = outputs[:, 0]  # First output is the predicted angle
-            bbox_preds = outputs[:, 1:].view(-1, 4, 2)  # Remaining 8 values are the predicted bounding box corners
+                optimizer.zero_grad()
+                outputs = model(images)
+                angle_preds = outputs[:, 0]  # First output is the predicted angle
+                bbox_preds = outputs[:, 1:].view(-1, 4, 2)  # Remaining 8 values are the predicted bounding box corners
 
-            # Compute the loss for both angle prediction and bounding box corners
-            angle_loss = criterion(angle_preds, angles)  # Loss for angle prediction
-            bbox_loss = criterion(bbox_preds, bboxes)  # Loss for the 8 bounding box corner values
-            loss = angle_loss + bbox_loss
+                # Compute the loss for both angle prediction and bounding box corners
+                angle_loss = criterion(angle_preds, angles)  # Loss for angle prediction
+                bbox_loss = criterion(bbox_preds, bboxes)  # Loss for the 8 bounding box corner values
+                loss = angle_loss + bbox_loss
 
-            loss.backward()
-            optimizer.step()
+                loss.backward()
+                optimizer.step()
 
-            running_loss += loss.item() * images.size(0)
-            total_samples += images.size(0)
+                running_loss += loss.item() * images.size(0)
+                total_samples += images.size(0)
 
-            mae_total += torch.abs(angle_preds - angles).mean().item()
-            iou_total += calculate_iou(bbox_preds, bboxes)
+                mae_total += torch.abs(angle_preds - angles).mean().item()
+                iou_total += calculate_iou(bbox_preds, bboxes)
 
-            epoch_loss = running_loss / total_samples
-            avg_mae = mae_total / len(dataloader)
-            avg_iou = iou_total / len(dataloader)
+                epoch_loss = running_loss / total_samples
+                avg_mae = mae_total / len(dataloader)
+                avg_iou = iou_total / len(dataloader)
 
-            log.write(f"{epoch+1},{epoch_loss:.4f},{avg_mae:.4f},{avg_iou:.4f}\n")
-            print(f"Epoch [{epoch+1}/{epochs}], Loss: {epoch_loss:.4f}, MAE: {avg_mae:.4f}, IoU: {avg_iou:.4f}")
+                log.write(f"{epoch+1},{epoch_loss:.4f},{avg_mae:.4f},{avg_iou:.4f}\n")
+                print(f"Epoch [{epoch+1}/{epochs}], Loss: {epoch_loss:.4f}, MAE: {avg_mae:.4f}, IoU: {avg_iou:.4f}")
 
-            model_save_path = f"rotate_model_object_epoch_{epoch+1}.pth"
-            torch.save(model.state_dict(), model_save_path)
+                model_save_path = f"rotate_model_object_epoch_{epoch+1}.pth"
+                torch.save(model.state_dict(), model_save_path)
 
     print("Training complete. Loss and metrics logged to:", log_file)
 
