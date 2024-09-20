@@ -8,11 +8,13 @@ from utils.preprocessing import ProjectilePointDataset, collate_fn
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
+import os
 
 # Import the RotationBBoxModel
 from models.rotation_bbox_model import RotationBBoxModel
 
 log_file_path = "training_log.txt"
+checkpoint_dir = "models"
 
 # Define IoU function (as above)
 def calculate_iou(pred_boxes, target_boxes):
