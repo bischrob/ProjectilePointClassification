@@ -68,6 +68,7 @@ model.to(device)
 
 # Training loop
 num_epochs = 10  # Example
+best_iou = 0
 for epoch in range(num_epochs):
     model.train()
     running_loss = 0.0
