@@ -5,8 +5,18 @@ import numpy as np
 import os
 from PIL import Image, ImageChops, ImageOps
 from scipy.ndimage import label, find_objects
+import glob
+import re
+import shutil
 
 def crop_image(img_path, dir_path, probability=0.75):
+
+    # Check if file exists before attempting to delete it
+    if os.path.exists(img_path):
+        print(f"Processing: {img_path}")
+    else:
+        print(f"File not found, skipping: {img_path}")
+        return None
    
     # Load the segmentation model
     model = smp.Unet(
@@ -94,14 +104,12 @@ def crop_image(img_path, dir_path, probability=0.75):
         cropped_img_with_border.save(img_name, format='PNG')
         print(f"Saved: {img_name}")
 
-def correct_image(img_path):
-    import os
-    import shutil
-    cropped_dir = "cropped"
-    originals_dir = "originals"
-    training_dataset_tmp_dir = "training_dataset_tmp"
-    training_masks_tmp_dir = "training_masks_tmp"
-
+def correct_image(img_path,
+                   cropped_dir = "cropped",
+                     originals_dir = "originals",
+                       training_dataset_tmp_dir = "training_dataset_tmp",
+                         training_masks_tmp_dir = "training_masks_tmp"):
+  
     # Extract the filename from the path (without directory)
     filename = os.path.basename(os.path.join(cropped_dir, img_path))
 
@@ -153,59 +161,78 @@ def remove_side(text):
     cleaned_text = re.sub(pattern, '', text)
     return cleaned_text
 
-def delete_images_with_prefix(directory, prefix, extensions=None, dry_run=False):
+def delete_images_with_prefix(directory, prefix, extensions=None, dry_run=False, confirm=False):
     """
-    Deletes image files in the specified directory that start with the given prefix.
+    Deletes image files in the specified directory that start with the given prefix using glob.
 
     :param directory: Path to the directory containing the images.
     :param prefix: The prefix string to match at the start of filenames.
-    :param extensions: List of image file extensions to consider (e.g., ['.jpg', '.png', '.gif']).
-                       If None, defaults to common image extensions.
+    :param extensions: List of image file extensions to consider. If None, defaults to common image extensions.
     :param dry_run: If True, lists the files to be deleted without actually deleting them.
+    :param confirm: If True, prompts the user for confirmation before deletion.
     """
     if extensions is None:
         extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp']
 
-    dir_path = Path(directory)
+    # Create patterns for each extension
+    patterns = [os.path.join(directory, f"{prefix}*{ext}") for ext in extensions]
 
-    if not dir_path.is_dir():
-        print(f"Error: The directory '{directory}' does not exist.")
+    # Gather all files matching the patterns
+    files_to_delete = []
+    for pattern in patterns:
+        files_to_delete.extend(glob.glob(pattern))
+
+    if not files_to_delete:
+        print("No matching files found.")
         return
 
-    # Counter for deleted files
-    deleted_files = 0
-
-    # Iterate over files in the directory
-    for file_path in dir_path.iterdir():
-        if file_path.is_file():
-            if file_path.name.startswith(prefix) and file_path.suffix.lower() in extensions:
-                if dry_run:
-                    print(f"[Dry Run] Would delete: {file_path}")
-                else:
-                    try:
-                        file_path.unlink()
-                        print(f"Deleted: {file_path}")
-                        deleted_files += 1
-                    except Exception as e:
-                        print(f"Failed to delete {file_path}: {e}")
-
-    if not dry_run:
-        print(f"\nTotal files deleted: {deleted_files}")
+    # Dry run
+    if dry_run:
+        print("Files to be deleted:")
+        for file_path in files_to_delete:
+            print(f"- {file_path}")
     else:
-        print("\nDry run completed. No files were deleted.")
+        # Confirmation prompt
+        if confirm:
+            print(f"Are you sure you want to delete {len(files_to_delete)} files? (y/n): ", end='')
+            choice = input().lower()
+            if choice != 'y':
+                print("Deletion canceled.")
+                return
+
+        # Proceed with deletion
+        deleted_files = 0
+        for file_path in files_to_delete:
+            # Check if file exists before attempting to delete it
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    print(f"Deleted: {file_path}")
+                    deleted_files += 1
+                except Exception as e:
+                    print(f"Failed to delete {file_path}: {e}")
+            else:
+                print(f"File not found, skipping: {file_path}")
+
+        # Summary
+        summary = f"Total files deleted: {deleted_files}"
+        print(f"\n{summary}")
 
 
-originals_dir = r"..\ColoradoProjectilePointdatabase/originals"
-image_files = [f for f in os.listdir(originals_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-image_list = image_files[5001:11220]
 
-for img_file in image_list:
-    img_path = os.path.join(originals_dir, img_file)
-    crop_image(img_path, probability = .75)
+
+
+# originals_dir = r"..\ColoradoProjectilePointdatabase/originals"
+# image_files = [f for f in os.listdir(originals_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+# image_list = image_files[5001:11220]
+
+# for img_file in image_list:
+#     img_path = os.path.join(originals_dir, img_file)
+#     crop_image(img_path, probability = .75)
 
 import csv
 
-file_path = 'bad_points.txt'
+file_path = '../ColoradoProjectilePointdatabase/bad_points2.txt'
 with open(file_path, 'r', newline='') as csvfile:
     reader = csv.reader(csvfile, delimiter='\t')
 
@@ -213,18 +240,25 @@ with open(file_path, 'r', newline='') as csvfile:
         filename = row[0].strip()
         filename_new = filename + ".png"
         # print(filename_new)
-        correct_image(filename_new)
+        correct_image(filename_new, 
+                       cropped_dir="../ColoradoProjectilePointdatabase/cropped",
+                       originals_dir= "../ColoradoProjectilePointdatabase/originals",
+                       training_dataset_tmp_dir= "../ColoradoProjectilePointdatabase/training_dataset_tmp",
+                       training_masks_tmp_dir= "../ColoradoProjectilePointdatabase/training_masks_tmp")
 
 # fix bad images
 
 file_path = '../ColoradoProjectilePointdatabase/bad_points.txt'
-dir = "../ColoradoProjectilePointdatabase"
+dir = "../ColoradoProjectilePointdatabase/cropped"
+dir2 = "../ColoradoProjectilePointdatabase/originals"
 with open(file_path, 'r', newline='') as csvfile:
     reader = csv.reader(csvfile, delimiter='\t')
 
     for row in reader:
         filename = row[0].strip()
+        filename = remove_side(filename)
+        print(filename)
         delete_images_with_prefix(dir,filename)
         filename_new = filename + ".png"
         # print(filename_new)
-        crop_image(os.path.join(dir,filename_new),dir)
+        crop_image(os.path.join(dir2,filename_new),dir)
