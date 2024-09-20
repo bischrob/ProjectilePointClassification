@@ -3,8 +3,8 @@
 import os
 import random
 import numpy as np
-from PIL import Image, UnidentifiedImageError
-
+from PIL import Image, UnidentifiedImageError, ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 import torch
 from torch.utils.data import Dataset
 import torchvision.transforms as transforms

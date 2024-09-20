@@ -8,9 +8,13 @@ from utils.preprocessing import ProjectilePointDataset, collate_fn
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
+import os
 
 # Import the RotationBBoxModel
 from models.rotation_bbox_model import RotationBBoxModel
+
+log_file_path = "training_log.txt"
+checkpoint_dir = "models"
 
 # Define IoU function (as above)
 def calculate_iou(pred_boxes, target_boxes):
@@ -50,7 +54,7 @@ transform = transforms.Compose([
     # Add normalization if desired
 ])
 
-dataset = ProjectilePointDataset(image_folder='../ColoradoProjectilePointdatabase/cropped', transform=transform)
+dataset = ProjectilePointDataset(image_folder='cropped', transform=transform)
 dataloader = DataLoader(dataset, batch_size=16, shuffle=True, collate_fn=collate_fn)
 
 # Initialize model, loss, optimizer
@@ -64,6 +68,7 @@ model.to(device)
 
 # Training loop
 num_epochs = 10  # Example
+best_iou = 0
 for epoch in range(num_epochs):
     model.train()
     running_loss = 0.0

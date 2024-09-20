@@ -60,11 +60,11 @@ def train_model():
     original_dataset_size = len(original_dataset)
     
     # The percentage of the original dataset to be used in each epoch (e.g., 25%)
-    fraction_to_use = 0.25
+    fraction_to_use = 0.33
     original_sample_size = int(fraction_to_use * original_dataset_size)
 
     # Training loop
-    num_epochs = 25  # adjustable
+    num_epochs = 5  # adjustable
     log_file_path = "training_log.txt"  # Log file path
 
     # Load the pre-trained U-Net model
@@ -74,6 +74,8 @@ def train_model():
         in_channels=3,                  # Input channels (3 for RGB)
         classes=1                       # Output classes (1 for binary segmentation)
     )
+
+    model.load_state_dict(torch.load("models/resnet34_pointsv5.pth"))
 
     # Loss function (Binary Cross-Entropy + Dice Loss can be used too)
     loss_fn = nn.BCEWithLogitsLoss()
