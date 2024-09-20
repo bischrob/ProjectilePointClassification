@@ -1,38 +1,30 @@
-import torch
-import torch.nn as nn
-from torchvision import transforms
-from PIL import Image
-import os
-import matplotlib.pyplot as plt
-import numpy as np
-from torchvision import models  # For ResNet50
+# evaluate.py
 
-# Set device (GPU if available)
+import torch
+from torchvision import transforms
+from models.rotation_bbox_model import RotationAndBBoxModel
+from utils.preprocessing import ProjectilePointDataset, collate_fn
+from utils.plotting import plot_images_with_bbox, visualize_iou, rotate_bbox_corners
+import os
+import numpy as np
+from PIL import Image
+from shapely import Polygon
+from shapely.validation import explain_validity
+
+# Set device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Create ResNet50 model for rotation angle and bounding box prediction
-class RotationAndBBoxModel(nn.Module):
-    def __init__(self):
-        super(RotationAndBBoxModel, self).__init__()
-        # Load a pre-trained ResNet50 model
-        self.model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
-        
-        # Modify the first convolutional layer to accept 4 input channels (RGBA)
-        self.model.conv1 = nn.Conv2d(4, self.model.conv1.out_channels, 
-                                     kernel_size=self.model.conv1.kernel_size,
-                                     stride=self.model.conv1.stride, 
-                                     padding=self.model.conv1.padding, 
-                                     bias=False)
-
-        # Modify the fully connected layer to output 5 values (1 angle + 4 bbox coordinates)
-        self.model.fc = nn.Linear(self.model.fc.in_features, 5)
-
-    def forward(self, x):
-        return self.model(x)
-
-# Load model weights from a specified .pth file
 def load_model(model_path):
+    """
+    Loads the trained model from the specified path.
+
+    Args:
+        model_path (str): Path to the saved model weights.
+
+    Returns:
+        RotationAndBBoxModel: The loaded model.
+    """
     model = RotationAndBBoxModel().to(device)
     if os.path.exists(model_path):
         model.load_state_dict(torch.load(model_path, map_location=device))
@@ -41,83 +33,154 @@ def load_model(model_path):
         raise FileNotFoundError(f"Model file {model_path} not found")
     return model
 
-# Function to preprocess the image (resize, normalize, etc.)
 def preprocess_image(image_path):
+    """
+    Preprocesses the image for model inference.
+
+    Args:
+        image_path (str): Path to the image file.
+
+    Returns:
+        tuple: (original_image, image_tensor)
+    """
     transform = transforms.Compose([
         transforms.Resize((128, 128)),
         transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406, 0], [0.229, 0.224, 0.225, 1])  # Normalize RGB channels only, leave alpha unchanged
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406, 0.0],  # Normalize RGB channels, leave alpha unchanged
+            std=[0.229, 0.224, 0.225, 1.0]
+        )
     ])
-    
+
     # Load the image as RGBA (to keep the alpha channel)
     image = Image.open(image_path).convert('RGBA')
     image_tensor = transform(image).unsqueeze(0)  # Add batch dimension
-    return image, image_tensor  # Return both original image and tensor
+    return image, image_tensor
 
-# Function to predict the rotation angle and bounding box
 def predict(model, image_tensor):
+    """
+    Predicts the rotation angle and bounding box using the model.
+
+    Args:
+        model (RotationAndBBoxModel): The trained model.
+        image_tensor (torch.Tensor): Preprocessed image tensor.
+
+    Returns:
+        tuple: (predicted_angle, predicted_bbox)
+    """
     model.eval()
     with torch.no_grad():
         image_tensor = image_tensor.to(device)
         outputs = model(image_tensor)
         angle_pred = outputs[:, 0].item()  # Predicted angle
-        bbox_pred = outputs[:, 1:].cpu().numpy().flatten()  # Predicted bounding box
+        bbox_pred = outputs[:, 1:].cpu().numpy().flatten()  # Predicted bounding box corners (8 values)
     return angle_pred, bbox_pred
 
-# Function to rotate an image by a given angle and preserve the alpha channel (transparency)
 def rotate_image(image, angle):
+    """
+    Rotates the image by the given angle while preserving the alpha channel.
+
+    Args:
+        image (PIL.Image.Image): The original image.
+        angle (float): Rotation angle in degrees.
+
+    Returns:
+        PIL.Image.Image: The rotated image.
+    """
     rotated_image = image.rotate(angle, expand=True)
     return rotated_image.convert("RGBA")
 
-# Function to plot original and rotated images with bounding box
-def plot_images_with_bbox(original_image, rotated_image, bbox, angle):
-    plt.figure(figsize=(8, 4))
-    
-    # Original Image
-    plt.subplot(1, 2, 1)
-    plt.imshow(original_image)
-    if bbox is not None:
-        x_min, y_min, x_max, y_max = bbox
-        plt.gca().add_patch(plt.Rectangle((x_min, y_min), x_max - x_min, y_max - y_min,
-                                          linewidth=2, edgecolor='red', facecolor='none'))
-    plt.title("Original Image with Bounding Box")
-    
-    # Rotated Image
-    plt.subplot(1, 2, 2)
-    plt.imshow(rotated_image)
-    plt.title(f"Rotated by {angle:.2f} degrees")
-    
-    plt.show()
-
-# Main function to load model, preprocess image, and predict rotation
-def main(model_path, image_path):
+def main(model_path, image_path, true_bbox_path=None):
     # Load the model
     model = load_model(model_path)
-    
+
     # Preprocess the image
     original_image, image_tensor = preprocess_image(image_path)
-    
+
     # Predict the rotation angle and bounding box
     predicted_angle, predicted_bbox = predict(model, image_tensor)
-    
+
     print(f"Predicted rotation angle: {predicted_angle:.2f} degrees")
-    print(f"Predicted bounding box: {predicted_bbox}")
-    
+    print(f"Predicted bounding box corners: {predicted_bbox}")
+
     # Rotate the image based on the predicted angle
     rotated_image = rotate_image(original_image, predicted_angle)
-    
-    # Convert predicted_bbox to a list if necessary
-    predicted_bbox = predicted_bbox.tolist() if isinstance(predicted_bbox, np.ndarray) else predicted_bbox
-    
-    # Plot the original and rotated images with bounding box
-    plot_images_with_bbox(original_image, rotated_image, predicted_bbox, predicted_angle)
-    
+
+    # Optionally, rotate the predicted bounding box for the rotated image
+    rotated_bbox = rotate_bbox_corners(predicted_bbox, predicted_angle, original_image.size, rotated_image.size)
+
+    # Plot the original and rotated images with bounding boxes
+    if true_bbox_path:
+        true_bbox = load_true_bbox(true_bbox_path)
+        plot_images_with_bbox(
+            original_image, 
+            rotated_image, 
+            bbox=predicted_bbox, 
+            angle=predicted_angle, 
+            rotated_bbox=rotated_bbox, 
+            ground_truth_bbox=true_bbox
+        )
+        # Optionally, visualize IoU
+        iou = calculate_iou(predicted_bbox, true_bbox)
+        visualize_iou(predicted_bbox, true_bbox)
+        print(f"IoU with ground truth: {iou:.4f}")
+    else:
+        plot_images_with_bbox(
+            original_image, 
+            rotated_image, 
+            bbox=predicted_bbox, 
+            angle=predicted_angle
+        )
+
     return predicted_angle, predicted_bbox
+
+def load_true_bbox(true_bbox_path):
+    """
+    Loads the ground truth bounding box from a file.
+
+    Args:
+        true_bbox_path (str): Path to the ground truth bbox file.
+
+    Returns:
+        np.ndarray: Ground truth bounding box corners [x1, y1, x2, y2, x3, y3, x4, y4].
+    """
+    # Example: Load from a text file with 8 comma-separated values
+    with open(true_bbox_path, 'r') as f:
+        bbox_str = f.read().strip()
+        bbox = np.array([float(x) for x in bbox_str.split(',')])
+    return bbox
+
+def calculate_iou(pred_bbox, true_bbox):
+    """
+    Calculate the IoU (Intersection over Union) between two bounding boxes.
+
+    Args:
+        pred_bbox (np.ndarray): Predicted bounding box corners [x1, y1, x2, y2, x3, y3, x4, y4].
+        true_bbox (np.ndarray): Ground truth bounding box corners [x1, y1, x2, y2, x3, y3, x4, y4].
+
+    Returns:
+        float: IoU value.
+    """
+    pred_polygon = Polygon(pred_bbox.reshape((4, 2)))
+    true_polygon = Polygon(true_bbox.reshape((4, 2)))
+
+    if not pred_polygon.is_valid:
+        print(f"Invalid predicted polygon: {explain_validity(pred_polygon)}")
+        return 0
+    if not true_polygon.is_valid:
+        print(f"Invalid true polygon: {explain_validity(true_polygon)}")
+        return 0
+
+    intersection_area = pred_polygon.intersection(true_polygon).area
+    union_area = pred_polygon.union(true_polygon).area
+    iou = intersection_area / union_area if union_area > 0 else 0
+    return iou
 
 if __name__ == "__main__":
     # Specify paths to the model and the image
-    model_path = 'models/rotation_model_object.pth'  # Path to your saved model
+    model_path = 'models/rotate_model_object.pth'  # Path to your saved model
     image_path = '5GN191.11899_side-2.png'  # Path to the image you want to process
-    
+    # true_bbox_path = 'path_to_ground_truth_bbox.txt'  # Optional: Path to ground truth bbox
+
     # Run the main function and get the predicted rotation and bounding box
-    angle, bbox = main(model_path, image_path)
+    angle, bbox = main(model_path, image_path)  # , true_bbox_path=true_bbox_path

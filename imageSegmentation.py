@@ -273,10 +273,10 @@ for img_file in image_list:
 def correct_image(img_path):
     import os
     import shutil
-    cropped_dir = "ColoradoProjectilePointdatabase/cropped"
-    originals_dir = "ColoradoProjectilePointdatabase/originals"
-    training_dataset_tmp_dir = "ColoradoProjectilePointdatabase/training_dataset_tmp"
-    training_masks_tmp_dir = "ColoradoProjectilePointdatabase/training_masks_tmp"
+    cropped_dir = "cropped"
+    originals_dir = "originals"
+    training_dataset_tmp_dir = "training_dataset_tmp"
+    training_masks_tmp_dir = "training_masks_tmp"
 
     # Extract the filename from the path (without directory)
     filename = os.path.basename(os.path.join(cropped_dir, img_path))
@@ -323,6 +323,17 @@ def correct_image(img_path):
         print(f"Copied '{original_image}' to {destination_mask_path}.")
 
 
-    crop_image(os.path.join("../ColoradoProjectilePointdatabase/originals",'5GN1876.4.png'), probability = .75)
-    correct_image('5_FR_0060101_0008_side-2.png')
+    # crop_image(os.path.join("../ColoradoProjectilePointdatabase/originals",'5GN1876.4.png'), probability = .75)
+    # correct_image('5_FR_0060101_0008_side-2.png')
     
+import csv
+
+file_path = 'bad_points.txt'
+with open(file_path, 'r', newline='') as csvfile:
+    reader = csv.reader(csvfile, delimiter='\t')
+
+    for row in reader:
+        filename = row[0].strip()
+        filename_new = filename + ".png"
+        # print(filename_new)
+        correct_image(filename_new)
