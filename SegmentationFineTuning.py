@@ -64,7 +64,7 @@ def train_model():
     original_sample_size = int(fraction_to_use * original_dataset_size)
 
     # Training loop
-    num_epochs = 20  # adjustable
+    num_epochs = 25  # adjustable
     log_file_path = "training_log.txt"  # Log file path
 
     # Load the pre-trained U-Net model
