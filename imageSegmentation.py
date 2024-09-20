@@ -1,179 +1,13 @@
 import torch
 import segmentation_models_pytorch as smp
 from torchvision import transforms
-from PIL import Image
 import numpy as np
-import matplotlib.pyplot as plt
 import os
-
-# Load the U-Net model with a ResNet-34 backbone
-model = smp.Unet(
-    encoder_name="resnet34",        # Use ResNet-34 as the backbone
-    encoder_weights=None,           # Do not use ImageNet weights, as we're loading fine-tuned weights
-    in_channels=3,                  # Input channels (3 for RGB)
-    classes=1                       # Output classes (1 for binary segmentation)
-)
-
-# Load the fine-tuned weights
-model.load_state_dict(torch.load("models/resnet34_pointsv4.pth"))
-
-# Set the model to evaluation mode
-model.eval()
-
-# Load your image (replace with the correct image path)
-# img = Image.open(r"ColoradoProjectilePointdatabase\originals\5MT10991.8638.png").convert("RGB")
-# img = Image.open(r"ColoradoProjectilePointdatabase\originals\5SH1458_0016.png").convert("RGB")
-# img = Image.open(r"ColoradoProjectilePointdatabase\originals\5_MO_0320100_0333.png").convert("RGB")
-img = Image.open(r"..\ColoradoProjectilePointdatabase\originals\5GN191.11899_side-2.png").convert("RGB")
-
-
-# Crop the image to remove rulers
-# crop_box = (760, 0, 3250, 2500)  # Adjust these values
-# img = img.crop(crop_box)
-
-# Define the necessary transformations
-preprocess = transforms.Compose([
-    transforms.Resize((2048, 2048)),  # Resize to the input size expected by the model
-    transforms.ToTensor(),            # Convert the image to a tensor
-    transforms.Normalize(             # Normalize with ImageNet mean and std
-        mean=[0.485, 0.456, 0.406], 
-        std=[0.229, 0.224, 0.225]
-    ),
-])
-
-# Apply transformations to the image
-input_tensor = preprocess(img).unsqueeze(0)  # Add batch dimension
-
-# Perform inference using the fine-tuned model
-with torch.no_grad():
-    output = model(input_tensor)
-
-# Post-process the output
-# The output is a logit tensor, so apply a sigmoid for binary segmentation
-output = torch.sigmoid(output).squeeze().cpu().numpy()
-
-# Threshold the output to get binary mask
-output_mask = (output > 0.5).astype(np.uint8)
-
-# Display the original image and segmentation mask
-plt.figure(figsize=(12, 6))
-plt.subplot(1, 2, 1)
-plt.imshow(img)
-plt.title("Original Image")
-
-plt.subplot(1, 2, 2)
-
-plt.imshow(output_mask, cmap="gray")
-plt.title("Segmentation Mask")
-plt.show()
-
-
-import os
-import numpy as np
-import matplotlib.pyplot as plt
 from PIL import Image, ImageChops, ImageOps
-
-# Ensure the 'cropped' directory exists
-cropped_dir = "ColoradoProjectilePointdatabase/cropped"
-os.makedirs(cropped_dir, exist_ok=True)
-
-# Load the original image (replace with your image path)
-img = Image.open(r"..\ColoradoProjectilePointdatabase/originals/5SM3459.2.png").convert("RGB")
-original_width, original_height = img.size
-
-# Load the corresponding segmentation mask (already predicted by the model)
-# Assume `output_mask` is available from earlier code and is binary
-resized_width, resized_height = 2048, 2048
-
-# Resize the image for segmentation (not for final cropping)
-img_resized = img.resize((resized_width, resized_height), Image.Resampling.LANCZOS)
-
-# Resize the segmentation mask to match the resized image dimensions
-mask_resized = Image.fromarray((output_mask * 255).astype(np.uint8)).resize((resized_width, resized_height), Image.Resampling.NEAREST)
-
-# Step 1: Find connected components in the resized mask
 from scipy.ndimage import label, find_objects
-labeled_mask, num_features = label(np.array(mask_resized))
-print(f"Number of objects found: {num_features}")
 
-# Step 2: Calculate scaling factors to map the bounding boxes back to the original image
-x_scale = original_width / resized_width
-y_scale = original_height / resized_height
-
-# Step 3: Get bounding boxes for each connected component
-objects = find_objects(labeled_mask)
-
-# Step 4: Apply alpha (transparency) mask on the original image (not resized)
-mask_original_size = Image.fromarray((output_mask * 255).astype(np.uint8)).resize((original_width, original_height), Image.Resampling.NEAREST)
-mask_array = np.array(mask_original_size)
-alpha_channel = np.where(mask_array > 0, 255, 0).astype(np.uint8)  # Create an alpha channel
-alpha_image = Image.fromarray(alpha_channel, mode='L')
-
-# Convert the original image to RGBA and apply the alpha channel
-img_rgba = img.convert("RGBA")
-img_with_alpha = ImageChops.multiply(img_rgba, Image.merge("RGBA", [img_rgba.split()[0], 
-                                                                    img_rgba.split()[1], 
-                                                                    img_rgba.split()[2], 
-                                                                    alpha_image]))
-
-# Step 5: Crop and save the two images based on the bounding boxes, adding a 25-pixel border
-border_size = 25  # Define the border size
-
-for i, obj_slice in enumerate(objects):
-    # Scale the bounding box back to the original dimensions
-    left = max(0, int(obj_slice[1].start * x_scale) - border_size)
-    upper = max(0, int(obj_slice[0].start * y_scale) - border_size)
-    right = min(original_width, int(obj_slice[1].stop * x_scale) + border_size)
-    lower = min(original_height, int(obj_slice[0].stop * y_scale) + border_size)
-
-    # Crop the original image (with alpha channel) using the scaled bounding box
-    cropped_img = img_with_alpha.crop((left, upper, right, lower))
-
-    # Remove all pure black pixels (0, 0, 0) by making them fully transparent
-    data = np.array(cropped_img)
-    tolerance = 10
-    transparent_black = (
-        (data[:, :, 0] <= tolerance) & 
-        (data[:, :, 1] <= tolerance) & 
-        (data[:, :, 2] <= tolerance)
-    )
-    data[transparent_black] = [0, 0, 0, 0]  # Set RGB to 0 and alpha (A) to 0 (transparent)
-    cropped_img_no_black = Image.fromarray(data, mode='RGBA')
-
-    # Add a 25-pixel transparent border around the cropped image
-    cropped_img_with_border = ImageOps.expand(cropped_img_no_black, border=border_size, fill=(0, 0, 0, 0))  # Transparent border
-
-    # Define the path to save the cropped image
-    img_base_name = os.path.splitext(os.path.basename(img_path))[0]
-    img_name = os.path.join(cropped_dir, f"{img_base_name}_side-{i+1}.png")
-
-    # Save the cropped image (with border and transparency)
-    cropped_img_with_border.save(img_name, format='PNG')
-    print(f"Saved: {img_name}")
-
-# Display the original image and segmentation mask
-plt.figure(figsize=(12, 6))
-plt.subplot(1, 2, 1)
-plt.imshow(img_with_alpha)
-plt.title("Image with Background Removed")
-
-plt.subplot(1, 2, 2)
-plt.imshow(mask_resized, cmap="gray")
-plt.title("Resized Segmentation Mask")
-plt.show()
-
-
-#### function ####
-
-def crop_image(img_path, probability=0.75):
-    import torch
-    import segmentation_models_pytorch as smp
-    from torchvision import transforms
-    import numpy as np
-    import os
-    from PIL import Image, ImageChops, ImageOps
-    from scipy.ndimage import label, find_objects
-    
+def crop_image(img_path, dir_path, probability=0.75):
+   
     # Load the segmentation model
     model = smp.Unet(
         encoder_name="resnet34",        # Use ResNet-34 as the backbone
@@ -181,7 +15,7 @@ def crop_image(img_path, probability=0.75):
         in_channels=3,                  # Input channels (3 for RGB)
         classes=1                       # Output classes (1 for binary segmentation)
     )
-    model.load_state_dict(torch.load("models/resnet34_pointsv4.pth"))
+    model.load_state_dict(torch.load("models/resnet34_pointsv5.pth"))
     model.eval()
     
     # Load the image
@@ -209,8 +43,8 @@ def crop_image(img_path, probability=0.75):
     output_mask = (output > probability).astype(np.uint8)
     
     # Create directories for saving cropped images
-    cropped_dir = "../ColoradoProjectilePointdatabase/cropped"
-    os.makedirs(cropped_dir, exist_ok=True)
+    
+    os.makedirs(dir_path, exist_ok=True)
 
     # Resize the original image and mask using LANCZOS interpolation
     img_resized = img.resize((resized_width, resized_height), Image.Resampling.LANCZOS)
@@ -256,19 +90,9 @@ def crop_image(img_path, probability=0.75):
         
         # Save the cropped image
         img_base_name = os.path.splitext(os.path.basename(img_path))[0]
-        img_name = os.path.join(cropped_dir, f"{img_base_name}_side-{i+1}.png")
+        img_name = os.path.join(dir_path, f"{img_base_name}_side-{i+1}.png")
         cropped_img_with_border.save(img_name, format='PNG')
         print(f"Saved: {img_name}")
-
-
-originals_dir = r"..\ColoradoProjectilePointdatabase/originals"
-image_files = [f for f in os.listdir(originals_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-image_list = image_files[5001:11220]
-
-for img_file in image_list:
-    img_path = os.path.join(originals_dir, img_file)
-    crop_image(img_path, probability = .75)
-
 
 def correct_image(img_path):
     import os
@@ -323,9 +147,62 @@ def correct_image(img_path):
         print(f"Copied '{original_image}' to {destination_mask_path}.")
 
 
-    # crop_image(os.path.join("../ColoradoProjectilePointdatabase/originals",'5GN1876.4.png'), probability = .75)
-    # correct_image('5_FR_0060101_0008_side-2.png')
-    
+def remove_side(text):
+    # This pattern matches '_side-1' or '_side-2'
+    pattern = r'_side-[12]'
+    cleaned_text = re.sub(pattern, '', text)
+    return cleaned_text
+
+def delete_images_with_prefix(directory, prefix, extensions=None, dry_run=False):
+    """
+    Deletes image files in the specified directory that start with the given prefix.
+
+    :param directory: Path to the directory containing the images.
+    :param prefix: The prefix string to match at the start of filenames.
+    :param extensions: List of image file extensions to consider (e.g., ['.jpg', '.png', '.gif']).
+                       If None, defaults to common image extensions.
+    :param dry_run: If True, lists the files to be deleted without actually deleting them.
+    """
+    if extensions is None:
+        extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp']
+
+    dir_path = Path(directory)
+
+    if not dir_path.is_dir():
+        print(f"Error: The directory '{directory}' does not exist.")
+        return
+
+    # Counter for deleted files
+    deleted_files = 0
+
+    # Iterate over files in the directory
+    for file_path in dir_path.iterdir():
+        if file_path.is_file():
+            if file_path.name.startswith(prefix) and file_path.suffix.lower() in extensions:
+                if dry_run:
+                    print(f"[Dry Run] Would delete: {file_path}")
+                else:
+                    try:
+                        file_path.unlink()
+                        print(f"Deleted: {file_path}")
+                        deleted_files += 1
+                    except Exception as e:
+                        print(f"Failed to delete {file_path}: {e}")
+
+    if not dry_run:
+        print(f"\nTotal files deleted: {deleted_files}")
+    else:
+        print("\nDry run completed. No files were deleted.")
+
+
+originals_dir = r"..\ColoradoProjectilePointdatabase/originals"
+image_files = [f for f in os.listdir(originals_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+image_list = image_files[5001:11220]
+
+for img_file in image_list:
+    img_path = os.path.join(originals_dir, img_file)
+    crop_image(img_path, probability = .75)
+
 import csv
 
 file_path = 'bad_points.txt'
@@ -337,3 +214,17 @@ with open(file_path, 'r', newline='') as csvfile:
         filename_new = filename + ".png"
         # print(filename_new)
         correct_image(filename_new)
+
+# fix bad images
+
+file_path = '../ColoradoProjectilePointdatabase/bad_points.txt'
+dir = "../ColoradoProjectilePointdatabase"
+with open(file_path, 'r', newline='') as csvfile:
+    reader = csv.reader(csvfile, delimiter='\t')
+
+    for row in reader:
+        filename = row[0].strip()
+        delete_images_with_prefix(dir,filename)
+        filename_new = filename + ".png"
+        # print(filename_new)
+        crop_image(os.path.join(dir,filename_new),dir)
