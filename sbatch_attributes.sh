@@ -5,7 +5,7 @@
 #SBATCH --gres=gpu:a100:1            ## Request 1 A100 GPU (adjust if more GPUs are required)
 #SBATCH --mem=64G                    ## Request 64GB of memory (adjust based on model requirements)
 #SBATCH --time=24:00:00              ## Request 24 hours of runtime
-#SBATCH --job-name=rotation-training
+#SBATCH --job-name=attributes
 #SBATCH --output=slurm.%j.out        ## Save stdout to a file with the job ID
 #SBATCH --error=slurm.%j.err         ## Save stderr to a file with the job ID
 #SBATCH --mail-type=END,FAIL         ## Send email notifications at the end or if the job fails
