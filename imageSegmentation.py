@@ -9,7 +9,7 @@ import glob
 import re
 import shutil
 
-def crop_image(img_path, dir_path, probability=0.75):
+def crop_image(img_path, dir_path, probability=0.75, num_objects = 2):
 
     # Check if file exists before attempting to delete it
     if os.path.exists(img_path):
@@ -88,7 +88,7 @@ def crop_image(img_path, dir_path, probability=0.75):
     border_size = 25
 
     # Iterate through detected objects and crop them
-    for i, obj_slice in enumerate(objects[:2]):
+    for i, obj_slice in enumerate(objects[:num_objects]):
         left = max(0, int(obj_slice[1].start * x_scale) - border_size)
         upper = max(0, int(obj_slice[0].start * y_scale) - border_size)
         right = min(original_width, int(obj_slice[1].stop * x_scale) + border_size)
@@ -248,7 +248,7 @@ with open(file_path, 'r', newline='') as csvfile:
 
 # fix bad images
 
-file_path = '../ColoradoProjectilePointdatabase/bad_points.txt'
+file_path = '../ColoradoProjectilePointdatabase/bad_points2.txt'
 dir = "../ColoradoProjectilePointdatabase/cropped"
 dir2 = "../ColoradoProjectilePointdatabase/originals"
 with open(file_path, 'r', newline='') as csvfile:
@@ -262,3 +262,23 @@ with open(file_path, 'r', newline='') as csvfile:
         filename_new = filename + ".png"
         # print(filename_new)
         crop_image(os.path.join(dir2,filename_new),dir)
+
+
+def find_image_files(directory, extensions=('.png', '.jpg', '.jpeg')):
+    image_files = []
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if file.lower().endswith(extensions):
+                image_files.append(os.path.join(root, file))
+    return image_files
+
+originals_dir = r"C:\Users\rjbischo\ASU Dropbox\Robert Bischoff\Projects\Dissertation\data\pointImages\originals"
+image_files = find_image_files(originals_dir)
+len(image_files)
+# image_list = image_files[5001:11220]
+image_list = image_files
+
+
+
+
+
