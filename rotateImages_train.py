@@ -1,7 +1,5 @@
-# rotateImages_train.py
-
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 from torchvision import transforms
 from utils.bbox_utils import convert_to_cwh_theta, cwh_theta_to_corners, clip_coordinates
 from utils.preprocessing import ProjectilePointDataset, collate_fn
@@ -55,10 +53,19 @@ transform = transforms.Compose([
 ])
 
 dataset = ProjectilePointDataset(image_folder='cropped', transform=transform)
-dataloader = DataLoader(dataset, batch_size=16, shuffle=True, collate_fn=collate_fn)
+
+# Split the dataset into training and test sets (80% train, 20% test)
+train_size = int(0.8 * len(dataset))
+test_size = len(dataset) - train_size
+train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
+
+train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, collate_fn=collate_fn)
+test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False, collate_fn=collate_fn)
 
 # Initialize model, loss, optimizer
 model = RotationBBoxModel()
+model.load_state_dict(torch.load("models/rotation_model.pth"))
+
 criterion = nn.MSELoss()  # Example loss
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
@@ -69,11 +76,13 @@ model.to(device)
 # Training loop
 num_epochs = 10  # Example
 best_iou = 0
+
 for epoch in range(num_epochs):
+    # Training phase
     model.train()
     running_loss = 0.0
     running_iou = 0.0
-    for batch in dataloader:
+    for batch in train_loader:
         if batch is None:
             continue  # Skip empty batches
         images, angles, bboxes = batch
@@ -92,13 +101,38 @@ for epoch in range(num_epochs):
             iou = calculate_iou(outputs, targets)
             running_iou += iou.mean().item()
 
-    average_loss = running_loss / len(dataloader)
-    average_iou = running_iou / len(dataloader)
+    average_loss = running_loss / len(train_loader)
+    average_iou = running_iou / len(train_loader)
+
+    # Testing phase
+    model.eval()
+    test_running_iou = 0.0
+    test_running_loss = 0.0
+    with torch.no_grad():
+        for batch in test_loader:
+            if batch is None:
+                continue  # Skip empty batches
+            images, angles, bboxes = batch
+            images = images.to(device)
+            targets = bboxes.to(device)
+
+            outputs = model(images)
+            loss = criterion(outputs, targets)
+            test_running_loss += loss.item()
+
+            iou = calculate_iou(outputs, targets)
+            test_running_iou += iou.mean().item()
+
+    test_average_loss = test_running_loss / len(test_loader)
+    test_average_iou = test_running_iou / len(test_loader)
+
     # Log the results to the training_log.txt file
     with open(log_file_path, 'a') as log_file:
-        log_file.write(f"Epoch {epoch+1}/{num_epochs}, Loss: {average_loss:.4f}, IoU: {average_iou:.4f}\n")
+        log_file.write(f"Epoch {epoch+1}/{num_epochs}, Loss: {average_loss:.4f}, IoU: {average_iou:.4f}, "
+                       f"Test Loss: {test_average_loss:.4f}, Test IoU: {test_average_iou:.4f}\n")
 
-    if average_iou > best_iou:
-        best_iou = average_iou
+    # Save the model if it has the best test IoU
+    if test_average_iou > best_iou:
+        best_iou = test_average_iou
         torch.save(model.state_dict(), os.path.join(checkpoint_dir, 'best_model.pth'))
-        print(f"Saved Best Model with IoU: {best_iou:.4f}")
+        print(f"Saved Best Model with Test IoU: {best_iou:.4f}")

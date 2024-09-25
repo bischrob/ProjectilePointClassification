@@ -8,3 +8,5 @@ rclone copy dropbox:Projects/ProjectilePointDatabase/ColoradoProjectilePointdata
 rclone copy dropbox:Projects/ProjectilePointDatabase/ColoradoProjectilePointdatabase/training_masks training_masks --ignore-existing -v
 
 rclone copy dropbox:Projects/ProjectilePointDatabase/ColoradoProjectilePointdatabase/training_masks_tmp training_masks_tmp --ignore-existing -v
+
+# rclone copy dropbox:Projects/ProjectilePointDatabase/ColoradoProjectilePointdatabase/cropped cropped 
