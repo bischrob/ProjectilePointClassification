@@ -7,6 +7,9 @@ import torch.optim as optim
 import segmentation_models_pytorch as smp
 from torchvision import transforms
 import random
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+import numpy as np
 
 # Set random seeds for reproducibility
 def set_seed(seed=42):
@@ -22,12 +25,6 @@ IMAGE_SIZE = 2048
 # 1. Define the custom dataset with enhanced error handling
 class ProjectilePointDataset(Dataset):
     def __init__(self, image_dir, mask_dir, transform=None):
-        """
-        Args:
-            image_dir (str): Directory with all the images.
-            mask_dir (str): Directory with all the masks.
-            transform (callable, optional): Optional transform to be applied on a sample.
-        """
         self.image_dir = image_dir
         self.mask_dir = mask_dir
         self.transform = transform
@@ -35,10 +32,9 @@ class ProjectilePointDataset(Dataset):
         self.valid_images = []
         self.valid_masks = []
 
-        # Verify that each image has a corresponding mask
         for img_name in self.images:
             img_path = os.path.join(self.image_dir, img_name)
-            mask_path = os.path.join(self.mask_dir, img_name)  # Assuming mask filenames match image filenames
+            mask_path = os.path.join(self.mask_dir, img_name)
             if os.path.isfile(img_path) and os.path.isfile(mask_path):
                 self.valid_images.append(img_name)
                 self.valid_masks.append(img_name)
@@ -54,37 +50,34 @@ class ProjectilePointDataset(Dataset):
         img_path = os.path.join(self.image_dir, self.valid_images[idx])
         mask_path = os.path.join(self.mask_dir, self.valid_masks[idx])
 
-        # Load image and mask
-        image = Image.open(img_path).convert("RGB")
-        mask = Image.open(mask_path).convert("L")  # Convert mask to grayscale
+        image = np.array(Image.open(img_path).convert("RGB"))
+        mask = np.array(Image.open(mask_path).convert("L"))
 
-        # Apply transformations
         if self.transform:
-            image = self.transform(image)
-            mask = transforms.Resize((IMAGE_SIZE, IMAGE_SIZE))(mask)  # Resize the mask
-            mask = transforms.ToTensor()(mask)  # Convert mask to tensor
-            mask = (mask > 0.5).float()  # Ensure the mask is binary (0 or 1)
+            augmented = self.transform(image=image, mask=mask)
+            image = augmented['image']
+            mask = augmented['mask']
+            mask = transforms.ToTensor()(mask)  # Converts to [0,1] if mask is in [0,255]
+            mask = (mask > 0.5).float()
 
         return image, mask
 
-# 2. Define transformations
-train_transform = transforms.Compose([
-    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
-    transforms.RandomHorizontalFlip(p=0.5),
-    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-    transforms.RandomRotation(degrees=15),
-    transforms.ToTensor(),
-    # Normalize using ImageNet's mean and std (since we'll use a pre-trained model)
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                         std=[0.229, 0.224, 0.225])
+# Define transformations using albumentations
+train_transform = A.Compose([
+    A.Resize(IMAGE_SIZE, IMAGE_SIZE),
+    A.HorizontalFlip(p=0.5),
+    A.Rotate(limit=15, p=0.5),
+    A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.5),
+    A.Normalize(mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]),
+    ToTensorV2()
 ])
 
-test_transform = transforms.Compose([
-    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
-    transforms.ToTensor(),
-    # Normalize using ImageNet's mean and std (since we'll use a pre-trained model)
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                         std=[0.229, 0.224, 0.225])
+test_transform = A.Compose([
+    A.Resize(IMAGE_SIZE, IMAGE_SIZE),
+    A.Normalize(mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]),
+    ToTensorV2()
 ])
 
 # 3. Function to create DataLoaders with enhanced filtering

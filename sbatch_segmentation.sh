@@ -22,13 +22,9 @@ module load mamba/latest
 echo "Activating the pytorch-gpu-2.3.1-cuda-12.1 environment"
 source activate pytorch-gpu-2.3.1-cuda-12.1
 
-# Install dependencies using mamba
-echo "Installing PyTorch and torchvision with mamba"
-mamba install -c conda-forge pytorch torchvision -y
-
 # Ensure pip installs into the correct environment by using mamba run
 echo "Installing segmentation_models_pytorch using pip inside the mamba environment"
-mamba run -n pytorch-gpu-2.3.1-cuda-12.1 pip install segmentation-models-pytorch
+mamba run -n pytorch-gpu-2.3.1-cuda-12.1 pip install segmentation-models-pytorch albumentations albumentations[imgaug]
 
 # Run the Python script for segmentation fine-tuning
 echo "Running SegmentationFineTuning.py"
