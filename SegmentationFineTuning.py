@@ -55,9 +55,13 @@ class ProjectilePointDataset(Dataset):
 
         if self.transform:
             augmented = self.transform(image=image, mask=mask)
-            image = augmented['image']  # Already a torch.Tensor
-            mask = augmented['mask']    # Already a torch.Tensor
+            image = augmented['image']  # [3, H, W]
+            mask = augmented['mask']    # [1, H, W]
             mask = (mask > 0.5).float() # Binarize the mask
+
+            # Ensure mask has a channel dimension
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(0)  # [1, H, W]
 
         return image, mask
 
@@ -79,7 +83,6 @@ test_transform = A.Compose([
                 std=[0.229, 0.224, 0.225]),
     ToTensorV2()
 ])
-
 # 3. Function to create DataLoaders with enhanced filtering
 def create_dataloaders(tmp_image_dir, tmp_mask_dir, original_image_dir, original_mask_dir,
                       batch_size=8, test_size=0.2, random_state=1010):
@@ -120,8 +123,8 @@ def create_dataloaders(tmp_image_dir, tmp_mask_dir, original_image_dir, original
     print(f"Testing subset: {len(test_subset)} samples")
 
     # Create DataLoaders
-    train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    test_loader = DataLoader(test_subset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True)
+    test_loader = DataLoader(test_subset, batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True)
 
     return train_loader, test_loader
 
