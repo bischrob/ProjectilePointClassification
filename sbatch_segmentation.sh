@@ -30,10 +30,6 @@ mamba install -c conda-forge pytorch torchvision -y
 echo "Installing segmentation_models_pytorch using pip inside the mamba environment"
 mamba run -n pytorch-gpu-2.3.1-cuda-12.1 pip install segmentation-models-pytorch
 
-# Verify installation and environment
-echo "Installed packages:"
-mamba list
-
 # Run the Python script for segmentation fine-tuning
 echo "Running SegmentationFineTuning.py"
 mamba run -n pytorch-gpu-2.3.1-cuda-12.1 python SegmentationFineTuning.py
