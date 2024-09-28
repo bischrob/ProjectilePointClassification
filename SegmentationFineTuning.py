@@ -1,7 +1,6 @@
 import os
 from PIL import Image
 from torch.utils.data import Dataset, ConcatDataset, random_split, DataLoader
-from sklearn.model_selection import train_test_split
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -10,12 +9,12 @@ from torchvision import transforms
 import random
 
 # Set random seeds for reproducibility
-def set_seed(seed=1010):
+def set_seed(seed=42):
     random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-set_seed(1010)
+set_seed(42)
 
 # Define image size
 IMAGE_SIZE = 2048
@@ -119,7 +118,7 @@ def create_dataloaders(tmp_image_dir, tmp_mask_dir, original_image_dir, original
     combined_dataset = ConcatDataset([original_dataset, tmp_dataset])
     print(f"Combined dataset contains {len(combined_dataset)} samples.")
 
-    # Split combined dataset into training and testing subsets
+    # Split combined dataset into training and testing subsets using random_split
     train_size = int((1 - test_size) * len(combined_dataset))
     test_size = len(combined_dataset) - train_size
     train_subset, test_subset = random_split(combined_dataset, [train_size, test_size],
@@ -222,7 +221,7 @@ def train_model(tmp_image_dir, tmp_mask_dir, original_image_dir, original_mask_d
     # Ensure the save directory exists
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-    # Open the log file
+    # Open the log file and write header
     with open(log_file_path, "w") as log_file:
         log_file.write("Epoch,Train Loss,Train Accuracy,Test Loss,Test Accuracy\n")  # Header
 
@@ -248,7 +247,7 @@ def train_model(tmp_image_dir, tmp_mask_dir, original_image_dir, original_mask_d
 
                 # Accumulate loss
                 train_loss += loss.item()
-                
+
                 # Calculate accuracy
                 acc = calculate_accuracy(outputs, masks)
                 train_accuracy += acc
