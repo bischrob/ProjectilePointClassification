@@ -24,7 +24,7 @@ source activate pytorch-gpu-2.3.1-cuda-12.1
 
 # Ensure pip installs into the correct environment by using mamba run
 echo "Installing segmentation_models_pytorch using pip inside the mamba environment"
-mamba run -n pytorch-gpu-2.3.1-cuda-12.1 pip install segmentation-models-pytorch albumentations albumentations[imgaug]
+mamba run -n pytorch-gpu-2.3.1-cuda-12.1 pip install segmentation-models-pytorch albumentations
 
 # Run the Python script for segmentation fine-tuning
 echo "Running SegmentationFineTuning.py"

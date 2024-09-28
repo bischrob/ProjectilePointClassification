@@ -55,12 +55,12 @@ class ProjectilePointDataset(Dataset):
 
         if self.transform:
             augmented = self.transform(image=image, mask=mask)
-            image = augmented['image']
-            mask = augmented['mask']
-            mask = transforms.ToTensor()(mask)  # Converts to [0,1] if mask is in [0,255]
-            mask = (mask > 0.5).float()
+            image = augmented['image']  # Already a torch.Tensor
+            mask = augmented['mask']    # Already a torch.Tensor
+            mask = (mask > 0.5).float() # Binarize the mask
 
         return image, mask
+
 
 # Define transformations using albumentations
 train_transform = A.Compose([
@@ -161,7 +161,7 @@ def calculate_accuracy(outputs, masks):
 # 6. Training function with logging
 def train_model(tmp_image_dir, tmp_mask_dir, original_image_dir, original_mask_dir,
                batch_size=8, test_size=0.2, random_state=1010,
-               num_epochs=30, learning_rate=1e-4,
+               num_epochs=5, learning_rate=1e-4,
                log_file_path="segmentationFineTuningResults.txt",
                save_path='models/segmentation_best_model.pth'):
     """
