@@ -233,14 +233,47 @@ def train_model(tmp_image_dir, tmp_mask_dir, original_image_dir, original_mask_d
     with open(log_file_path, "w") as log_file:
         log_file.write("Epoch,Train Loss,Train Accuracy,Test Loss,Test Accuracy\n")  # Header
 
-        for epoch in range(num_epochs):
-            # Training phase
-            model.train()
-            train_loss = 0.0
-            train_accuracy = 0.0
-            total_train_batches = 0
+    for epoch in range(num_epochs):
+        # Training phase
+        model.train()
+        train_loss = 0.0
+        train_accuracy = 0.0
+        total_train_batches = 0
 
-            for images, masks in train_loader:
+        for images, masks in train_loader:
+            images = images.to(device)
+            masks = masks.to(device)
+
+            # Forward pass
+            outputs = model(images)
+            loss = criterion(outputs, masks)
+
+            # Backward pass and optimization
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            # Accumulate loss
+            train_loss += loss.item()
+
+            # Calculate accuracy
+            acc = calculate_accuracy(outputs, masks)
+            train_accuracy += acc
+
+            total_train_batches += 1
+
+        # Average training loss and accuracy
+        avg_train_loss = train_loss / total_train_batches
+        avg_train_accuracy = train_accuracy / total_train_batches
+
+        # Evaluation phase
+        model.eval()
+        test_loss = 0.0
+        test_accuracy = 0.0
+        total_test_batches = 0
+
+        with torch.no_grad():
+            for images, masks in test_loader:
                 images = images.to(device)
                 masks = masks.to(device)
 
@@ -248,71 +281,39 @@ def train_model(tmp_image_dir, tmp_mask_dir, original_image_dir, original_mask_d
                 outputs = model(images)
                 loss = criterion(outputs, masks)
 
-                # Backward pass and optimization
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
                 # Accumulate loss
-                train_loss += loss.item()
+                test_loss += loss.item()
 
                 # Calculate accuracy
                 acc = calculate_accuracy(outputs, masks)
-                train_accuracy += acc
+                test_accuracy += acc
 
-                total_train_batches += 1
+                total_test_batches += 1
 
-            # Average training loss and accuracy
-            avg_train_loss = train_loss / total_train_batches
-            avg_train_accuracy = train_accuracy / total_train_batches
+        # Average testing loss and accuracy
+        avg_test_loss = test_loss / total_test_batches
+        avg_test_accuracy = test_accuracy / total_test_batches
 
-            # Evaluation phase
-            model.eval()
-            test_loss = 0.0
-            test_accuracy = 0.0
-            total_test_batches = 0
+        # Check if this epoch has the best accuracy so far
+        if avg_test_accuracy > best_accuracy:
+            best_accuracy = avg_test_accuracy
+            torch.save(model.state_dict(), save_path)
+            is_best = True
+        else:
+            is_best = False
 
-            with torch.no_grad():
-                for images, masks in test_loader:
-                    images = images.to(device)
-                    masks = masks.to(device)
-
-                    # Forward pass
-                    outputs = model(images)
-                    loss = criterion(outputs, masks)
-
-                    # Accumulate loss
-                    test_loss += loss.item()
-
-                    # Calculate accuracy
-                    acc = calculate_accuracy(outputs, masks)
-                    test_accuracy += acc
-
-                    total_test_batches += 1
-
-            # Average testing loss and accuracy
-            avg_test_loss = test_loss / total_test_batches
-            avg_test_accuracy = test_accuracy / total_test_batches
-
-            # Check if this epoch has the best accuracy so far
-            if avg_test_accuracy > best_accuracy:
-                best_accuracy = avg_test_accuracy
-                torch.save(model.state_dict(), save_path)
-                is_best = True
-            else:
-                is_best = False
-
-            # Log the results
+        # Log the results
+        with open(log_file_path, "w") as log_file:
             log_line = f"{epoch+1},{avg_train_loss:.4f},{avg_train_accuracy:.4f},{avg_test_loss:.4f},{avg_test_accuracy:.4f}\n"
             log_file.write(log_line)
 
-            # Optionally, print the epoch results
-            print(f"Epoch {epoch+1}/{num_epochs}: "
-                  f"Train Loss: {avg_train_loss:.4f}, "
-                  f"Train Acc: {avg_train_accuracy:.4f}, "
-                  f"Test Loss: {avg_test_loss:.4f}, "
-                  f"Test Acc: {avg_test_accuracy:.4f} "
-                  f"{'*BEST*' if is_best else ''}")
+        # Optionally, print the epoch results
+        print(f"Epoch {epoch+1}/{num_epochs}: "
+                f"Train Loss: {avg_train_loss:.4f}, "
+                f"Train Acc: {avg_train_accuracy:.4f}, "
+                f"Test Loss: {avg_test_loss:.4f}, "
+                f"Test Acc: {avg_test_accuracy:.4f} "
+                f"{'*BEST*' if is_best else ''}")
 
     print(f"Training complete. Best model saved at '{save_path}' with Test Accuracy: {best_accuracy:.4f}")
     print(f"Training and evaluation results have been logged to '{log_file_path}'.")
