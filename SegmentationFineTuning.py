@@ -32,16 +32,28 @@ class ProjectilePointDataset(Dataset):
         self.valid_images = []
         self.valid_masks = []
 
+        print(f"Found {len(self.images)} images in '{image_dir}'.")
+
         for img_name in self.images:
             img_path = os.path.join(self.image_dir, img_name)
             mask_path = os.path.join(self.mask_dir, img_name)
+
+            # Check if both image and mask files exist
             if os.path.isfile(img_path) and os.path.isfile(mask_path):
-                self.valid_images.append(img_name)
-                self.valid_masks.append(img_name)
+                # Open image and mask to check sizes
+                with Image.open(img_path).convert("RGB") as img:
+                    with Image.open(mask_path).convert("L") as msk:
+                        if img.size == msk.size:
+                            self.valid_images.append(img_name)
+                            self.valid_masks.append(img_name)
+                        else:
+                            print(f"Warning: Image and mask sizes do not match for '{img_name}'. This sample will be ignored.")
             else:
                 print(f"Warning: Missing image or mask for '{img_name}'. This sample will be ignored.")
 
         print(f"Initialized ProjectilePointDataset with {len(self.valid_images)} samples.")
+
+
 
     def __len__(self):
         return len(self.valid_images)
